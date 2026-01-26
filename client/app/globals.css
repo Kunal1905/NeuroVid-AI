@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@layer base {
+  body {
+    @apply bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/70 dark:bg-slate-900/70
+           backdrop-blur-xl
+           border border-slate-200 dark:border-slate-800
+           shadow-lg;
+  }
+}
+
+.glass-card {
+  @apply bg-white/5 backdrop-blur-xl border border-white/10
+         shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)];
+}
