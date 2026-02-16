@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { Play, CheckCircle, XCircle } from "lucide-react";
 import Navbar from "../Navbar/page";
+import { apiUrl } from "@/lib/api";
 
 type QuizQuestion = {
   question: string;
@@ -50,10 +51,9 @@ export default function VideoResult() {
       }
       try {
         const token = await getToken();
-        const res = await fetch(
-          `http://localhost:3005/api/generate/session/${sessionId}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
+        const res = await fetch(apiUrl(`/api/generate/session/${sessionId}`), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) {
           setError("Failed to load generation");
           setLoading(false);

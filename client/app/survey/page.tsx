@@ -9,6 +9,7 @@ import Link  from "next/link"
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
+import { apiUrl } from "@/lib/api";
 
 type ResponseValue =
   | 'analytical'
@@ -275,7 +276,7 @@ export default function BrainDominanceSurveyPage() {
   const token = await getToken();
   
   const res = await fetch(
-    "http://localhost:3005/api/survey/submitSurvey",
+    apiUrl("/api/survey/submitSurvey"),
     {
       method: "POST",
       credentials: "include", // This ensures cookies are sent with the request

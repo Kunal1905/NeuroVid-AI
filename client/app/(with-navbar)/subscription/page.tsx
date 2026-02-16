@@ -5,6 +5,7 @@ import { Check, Sparkles, Shield, Crown, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth, useUser } from "@clerk/nextjs";
 import clsx from "clsx";
+import { API_BASE } from "@/lib/api";
 
 declare global {
   interface Window {
@@ -23,7 +24,6 @@ type Plan = {
   icon: ReactNode;
 };
 
-const API_BASE = "http://localhost:3005";
 
 const plans: Plan[] = [
   {

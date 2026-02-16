@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "@clerk/nextjs";
+import { apiUrl } from "@/lib/api";
 
 /* ----------------------------------
    Types
@@ -117,7 +118,7 @@ export default function Chat() {
       }
 
       const history = updatedConversation.messages.slice(-12);
-      const res = await fetch("http://localhost:3005/api/chat/complete", {
+      const res = await fetch(apiUrl("/api/chat/complete"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

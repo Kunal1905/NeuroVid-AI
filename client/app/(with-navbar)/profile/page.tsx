@@ -27,6 +27,7 @@ import {
 } from "recharts";
 import { useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
+import { apiUrl } from "@/lib/api";
 
 // Types
 type Stats = {
@@ -88,14 +89,14 @@ export default function ProfileUI() {
         const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
         // Fetch Stats
-        const statsRes = await fetch("http://localhost:3005/api/users/stats", { headers });
+        const statsRes = await fetch(apiUrl("/api/users/stats"), { headers });
         if (statsRes.ok) {
             const data = await statsRes.json();
             setStats(data);
         }
 
         // Fetch Survey
-        const surveyRes = await fetch("http://localhost:3005/api/survey/surveyData", { headers });
+        const surveyRes = await fetch(apiUrl("/api/survey/surveyData"), { headers });
         if (surveyRes.ok) {
             const data = await surveyRes.json();
             setSurveyData(data);

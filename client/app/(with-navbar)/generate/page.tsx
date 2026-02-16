@@ -34,6 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiUrl } from "@/lib/api";
 
 export default function Generate() {
   const { user } = useUser();
@@ -68,7 +69,7 @@ export default function Generate() {
         const token = await getToken();
         if (!token) return;
 
-        const res = await fetch("http://localhost:3005/api/survey/surveyData", {
+        const res = await fetch(apiUrl("/api/survey/surveyData"), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -91,7 +92,7 @@ export default function Generate() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await fetch("http://localhost:3005/api/users/stats", {
+        const res = await fetch(apiUrl("/api/users/stats"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
@@ -118,23 +119,20 @@ export default function Generate() {
     try {
       const token = await getToken();
 
-      const res = await fetch(
-        "http://localhost:3005/api/generate/submitGeneration",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            topic,
-            details,
-            category,
-            language,
-            duration: duration[0],
-          }),
+      const res = await fetch(apiUrl("/api/generate/submitGeneration"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({
+          topic,
+          details,
+          category,
+          language,
+          duration: duration[0],
+        }),
+      });
 
       if (res.status === 429) {
         const err = await res.json();
@@ -166,12 +164,9 @@ export default function Generate() {
   const pollStatus = async (sid: string) => {
     const interval = setInterval(async () => {
       const token = await getToken();
-      const res = await fetch(
-        `http://localhost:3005/api/generate/status/${sid}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(apiUrl(`/api/generate/status/${sid}`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (res.ok) {
         const data = await res.json();

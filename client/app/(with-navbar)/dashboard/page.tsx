@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 // Define types for stats and videos 
 interface UserStats {
@@ -57,7 +58,7 @@ export default function Dashboard() {
             return;
           }
 
-          const res = await fetch("http://localhost:3005/api/users/create", {
+          const res = await fetch(apiUrl("/api/users/create"), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -107,7 +108,7 @@ export default function Dashboard() {
           };
 
           try {
-            const statsRes = await fetch("http://localhost:3005/api/users/stats", {
+            const statsRes = await fetch(apiUrl("/api/users/stats"), {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
@@ -122,7 +123,7 @@ export default function Dashboard() {
 
           // Fetch recent videos (assume endpoint returns last 3)
           try {
-            const videosRes = await fetch("http://localhost:3005/api/generate/recent?limit=3", {
+            const videosRes = await fetch(apiUrl("/api/generate/recent?limit=3"), {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
@@ -137,7 +138,7 @@ export default function Dashboard() {
 
           // Fetch Brain Dominance Data
           try {
-            const brainRes = await fetch("http://localhost:3005/api/survey/surveyData", {
+            const brainRes = await fetch(apiUrl("/api/survey/surveyData"), {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
