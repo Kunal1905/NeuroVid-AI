@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import { useAuth } from "@clerk/nextjs";
 
 /* ----------------------------------
    Types
@@ -43,6 +44,8 @@ export default function Chat() {
     useState<Conversation | null>(null);
   const [inputMessage, setInputMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth();
 
   // ⬇️ Sidebar state (mobile only)
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -85,6 +88,7 @@ export default function Chat() {
 
   const sendMessage = async () => {
     if (!inputMessage.trim() || !activeConversation) return;
+    setError(null);
 
     const userMessage: Message = {
       role: "user",
@@ -104,14 +108,33 @@ export default function Chat() {
       prev.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
     );
 
-    setTimeout(() => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("You must be logged in to chat.");
+        setSending(false);
+        return;
+      }
+
+      const history = updatedConversation.messages.slice(-12);
+      const res = await fetch("http://localhost:3005/api/chat/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ messages: history }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Chat request failed");
+      }
+
+      const data = await res.json();
       const assistantMessage: Message = {
         role: "assistant",
-        content: `That's a great question! 🤓  
-
-Here’s a clear explanation to help you understand it better.
-
-If you want, we can go **deeper**, **simpler**, or look at **real-world examples** next.`,
+        content: data.reply || "Sorry, I couldn't generate a response.",
       };
 
       const finalConversation = {
@@ -125,8 +148,11 @@ If you want, we can go **deeper**, **simpler**, or look at **real-world examples
           c.id === finalConversation.id ? finalConversation : c
         )
       );
+    } catch (err: any) {
+      setError(err?.message || "Something went wrong.");
+    } finally {
       setSending(false);
-    }, 900);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -282,6 +308,12 @@ If you want, we can go **deeper**, **simpler**, or look at **real-world examples
                   <div className="flex gap-3 items-center text-slate-400">
                     <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
                     Thinking...
+                  </div>
+                )}
+
+                {error && (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                    {error}
                   </div>
                 )}
 

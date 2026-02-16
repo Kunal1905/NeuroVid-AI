@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   X,
+  IndianRupeeIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import clsx from "clsx";
@@ -21,6 +22,7 @@ const protectedNavItems = [
   { name: "Generate", href: "/generate", icon: Video },
   { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Profile", href: "/profile", icon: User },
+  { name: "Subscription", href: "/subscription", icon: IndianRupeeIcon },
 ];
 
 const publicNavItem = [
@@ -31,33 +33,6 @@ const Navbar = () => {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { userId, getToken } = useAuth();
-
-  useEffect(() => {
-    const run = async () => {
-      if (!userId) return;
-      try {
-        const token = await getToken();
-        console.log("Syncing user with DB...");
-        const res = await fetch("http://localhost:3005/api/users/create", {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token || ""}`,
-          },
-        });
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error("Failed to sync user:", res.status, errText);
-        } else {
-          console.log("User synced successfully:", await res.json());
-        }
-      } catch (error) {
-        console.error("Error syncing user:", error);
-      }
-    };
-    run();
-  }, [userId, getToken]);
 
   return (
     <header className="fixed top-0 left-0 w-full z-50">
