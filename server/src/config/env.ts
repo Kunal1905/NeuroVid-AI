@@ -5,6 +5,7 @@ const envSchema = z.object({
   CLERK_SECRET_KEY: z.string(),
   PORT: z.string().optional(),
   CLIENT_ORIGIN: z.string().url(),
+  REDIS_URL: z.string().url(),
 });
 
 try {

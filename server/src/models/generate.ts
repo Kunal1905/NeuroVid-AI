@@ -12,10 +12,11 @@ import { brainDominanceSurveys } from "./survey";
 
 export const generationStatusEnum = pgEnum("generation_status", [
   "CREATED",
-  "GENERATING",
-  "SCRIPT_READY",
-  "VIDEO_RENDERING",
-  "READY",
+  "QUEUED",
+  "GENERATING_SCRIPT",
+  "GENERATING_QUIZ",
+  "GENERATING_VIDEO",
+  "COMPLETED",
   "FAILED",
 ]);
 

@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node --log-error' src/index.ts",
+    "worker": "tsx watch src/workers/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
@@ -17,23 +18,32 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@bull-board/api": "^6.17.0",
+    "@bull-board/express": "^6.17.0",
     "@clerk/backend": "^2.29.3",
     "@clerk/clerk-sdk-node": "^4.13.23",
     "@clerk/express": "^1.7.65",
+    "@google-cloud/vertexai": "^1.10.0",
+    "@google/generative-ai": "^0.11.0",
     "@neondatabase/serverless": "^1.0.2",
     "@types/express": "^4.17.25",
+    "bullmq": "^5.67.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "express": "^4.19.2",
+    "ioredis": "^5.9.2",
+    "pg": "^8.18.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
+    "undici": "^7.19.1",
     "zod": "^4.3.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/node": "^25.0.10",
     "drizzle-kit": "^0.31.8",
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "tsx": "^4.21.0"
   }
 }

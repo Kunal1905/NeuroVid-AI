@@ -1,24 +1,8 @@
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL not set in .env');
-}
-
-console.log('Connecting to DB...');  // Debug
-const sql = neon(process.env.DATABASE_URL, { 
-  fetchOptions: {  // Add timeout
-    signal: AbortSignal.timeout(10000)  // 10s timeout
-  } 
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 });
-export const db = drizzle(sql);
 
-// Test connection on load
-(async () => {
-  try {
-    await sql`SELECT 1`;  // Simple test query
-    console.log('DB connection successful');
-  } catch (err) {
-    console.error('DB connection failed:', err);
-  }
-})();
+export const db = drizzle(pool);
