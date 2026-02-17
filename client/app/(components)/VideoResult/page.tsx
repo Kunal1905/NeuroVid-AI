@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { Play, CheckCircle, XCircle } from "lucide-react";
@@ -29,7 +29,7 @@ type GenerationData = {
   thumbnailUrl?: string | null;
 };
 
-export default function VideoResult() {
+function VideoResultContent() {
   const { getToken } = useAuth();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
@@ -275,5 +275,22 @@ export default function VideoResult() {
       </div>
     </div>
     </div>
+  );
+}
+
+export default function VideoResult() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0B0B1A] text-white">
+          <Navbar />
+          <div className="pt-28 px-6 text-center text-slate-300">
+            Loading...
+          </div>
+        </div>
+      }
+    >
+      <VideoResultContent />
+    </Suspense>
   );
 }
