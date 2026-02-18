@@ -197,43 +197,92 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ================= STATS GRID ================= */}
+        {/* ================= SNAPSHOT ================= */}
         {loading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {[1, 2, 3, 4].map((i) => (
+          <div className="grid lg:grid-cols-3 gap-4 mb-8">
+            {[1, 2, 3].map((i) => (
               <div key={i} className="glass-card rounded-2xl p-6 animate-pulse">
-                <div className="w-12 h-12 rounded-xl bg-slate-700 mb-4" />
-                <div className="h-4 w-2/3 bg-slate-700 rounded mb-1" />
-                <div className="h-6 w-1/2 bg-slate-700 rounded" />
+                <div className="h-5 w-32 bg-slate-700 rounded mb-4" />
+                <div className="h-10 w-24 bg-slate-700 rounded mb-4" />
+                <div className="h-3 w-full bg-slate-700 rounded" />
               </div>
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {[
-              { label: "Total XP", icon: Trophy, bg: "bg-yellow-500/20", color: "text-yellow-400", value: stats?.xp || "0" },
-              { label: "Level", icon: Brain, bg: "bg-blue-500/20", color: "text-blue-400", value: stats?.level || 1 },
-              { label: "Streak", icon: Flame, bg: "bg-orange-500/20", color: "text-orange-400", value: stats?.streak || "0 days" },
-              { label: "Videos", icon: Video, bg: "bg-cyan-500/20", color: "text-cyan-400", value: stats?.videos || 0 },
-              { label: "Quizzes", icon: Target, bg: "bg-emerald-500/20", color: "text-emerald-400", value: stats?.quizzes || 0 },
-              { label: "Avg Score", icon: Award, bg: "bg-violet-500/20", color: "text-violet-400", value: stats?.avgScore || "0%" },
-            ].map((item, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="glass-card rounded-2xl p-6"
-              >
-                <div
-                  className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center mb-4`}
-                >
-                  <item.icon className={`w-6 h-6 ${item.color}`} />
+          <div className="grid lg:grid-cols-3 gap-4 mb-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card rounded-2xl p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-slate-400">Learning Momentum</p>
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                  <Brain className="w-5 h-5 text-blue-300" />
                 </div>
-                <p className="text-sm text-slate-400 mb-1">{item.label}</p>
-                <p className="text-xl font-bold text-white">{item.value}</p>
-              </motion.div>
-            ))}
+              </div>
+              <p className="text-3xl font-semibold text-white mb-2">
+                Level {stats?.level || 1}
+              </p>
+              <p className="text-sm text-slate-400 mb-4">
+                {stats?.xp || "0"} total XP earned
+              </p>
+              <div className="h-2 w-full rounded-full bg-slate-800">
+                <div className="h-2 rounded-full bg-blue-500/70 w-2/3" />
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="glass-card rounded-2xl p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-slate-400">Activity Streak</p>
+                <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                  <Flame className="w-5 h-5 text-orange-300" />
+                </div>
+              </div>
+              <p className="text-3xl font-semibold text-white mb-2">
+                {stats?.streak || "0 days"}
+              </p>
+              <p className="text-sm text-slate-400 mb-4">
+                Keep a daily rhythm to boost recall
+              </p>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-orange-400" />
+                Next milestone at 7 days
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="glass-card rounded-2xl p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-slate-400">Learning Snapshot</p>
+                <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+                  <Award className="w-5 h-5 text-violet-300" />
+                </div>
+              </div>
+              <div className="space-y-3 text-sm text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>Videos created</span>
+                  <span className="text-white font-semibold">{stats?.videos || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Quizzes taken</span>
+                  <span className="text-white font-semibold">{stats?.quizzes || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Avg score</span>
+                  <span className="text-white font-semibold">{stats?.avgScore || "0%"}</span>
+                </div>
+              </div>
+            </motion.div>
           </div>
         )}
 
