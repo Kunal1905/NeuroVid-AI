@@ -26,12 +26,12 @@ serverAdapter.setBasePath("/admin/queues");
 // Connect to Redis first before initializing BullMQ
 async function initializeServer() {
   try {
-    console.log('Connecting to Redis...');
+    console.log("Connecting to Redis...");
     // Avoid calling connect() when ioredis is already connecting/connected
-    if (redisConnection.status !== 'ready') {
+    if (redisConnection.status !== "ready") {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Redis connection timeout'));
+          reject(new Error("Redis connection timeout"));
         }, 15000);
 
         const onReady = () => {
@@ -43,25 +43,63 @@ async function initializeServer() {
           reject(err);
         };
 
-        redisConnection.once('ready', onReady);
-        redisConnection.once('error', onError);
+        redisConnection.once("ready", onReady);
+        redisConnection.once("error", onError);
       });
     }
-    console.log('✅ Redis connected successfully');
-    
+    console.log("✅ Redis connected successfully");
+
     // Initialize BullMQ board after Redis is ready
     createBullBoard({
       queues: [new BullMQAdapter(generationQueue)],
       serverAdapter,
     });
-    
+
+    const allowedOrigins = [
+      ...(process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || "http://localhost:3000")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ];
+
+    const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === "true";
+    const isDev = process.env.NODE_ENV !== "production";
+
     const corsOptions = {
-      origin: "http://localhost:3000",
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+
+        if (allowVercelPreviews && origin.startsWith("https://") && origin.endsWith(".vercel.app")) {
+          return callback(null, true);
+        }
+
+        if (isDev) {
+          const devOrigins = new Set([
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+          ]);
+          if (devOrigins.has(origin)) {
+            return callback(null, true);
+          }
+        }
+
+        return callback(new Error(`CORS blocked: ${origin}`));
+      },
       credentials: true,
     };
+
     app.use(cors(corsOptions));
     app.use(express.json());
-    const hasClerk = !!process.env.CLERK_PUBLISHABLE_KEY && !!process.env.CLERK_SECRET_KEY;
+    const hasClerk =
+      !!process.env.CLERK_PUBLISHABLE_KEY && !!process.env.CLERK_SECRET_KEY;
     console.log("Clerk Enabled:", hasClerk);
     if (hasClerk) {
       app.use(clerkMiddleware());
@@ -69,21 +107,24 @@ async function initializeServer() {
 
     // Error handling middleware
     app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-      console.error('Unhandled error:', {
+      console.error("Unhandled error:", {
         message: err.message,
         stack: err.stack,
         url: req.url,
         method: req.method,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
-      
+
       if (res.headersSent) {
         return next(err);
       }
-      
+
       res.status(500).json({
-        error: 'Internal Server Error',
-        message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+        error: "Internal Server Error",
+        message:
+          process.env.NODE_ENV === "development"
+            ? err.message
+            : "Something went wrong",
       });
     });
 
@@ -94,7 +135,7 @@ async function initializeServer() {
         let dbStatus = "unknown";
         try {
           if (db) {
-            await db.execute('SELECT 1');
+            await db.execute("SELECT 1");
             dbStatus = "connected";
           } else {
             dbStatus = "disabled";
@@ -106,7 +147,7 @@ async function initializeServer() {
         // Check Redis connection
         let redisStatus = "unknown";
         try {
-          if (redisConnection.status === 'ready') {
+          if (redisConnection.status === "ready") {
             await redisConnection.ping();
             redisStatus = "connected";
           } else {
@@ -125,24 +166,27 @@ async function initializeServer() {
           queueStatus = "error";
         }
 
-        const status = dbStatus === "connected" && redisStatus === "connected" ? "healthy" : "degraded";
-        
+        const status =
+          dbStatus === "connected" && redisStatus === "connected"
+            ? "healthy"
+            : "degraded";
+
         res.status(status === "healthy" ? 200 : 503).json({
           status,
           timestamp: new Date().toISOString(),
           services: {
             database: dbStatus,
             redis: redisStatus,
-            queue: queueStatus
+            queue: queueStatus,
           },
           pid: process.pid,
-          uptime: process.uptime()
+          uptime: process.uptime(),
         });
       } catch (error) {
         res.status(500).json({
           status: "unhealthy",
           error: (error as Error).message,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
     });
@@ -163,47 +207,48 @@ async function initializeServer() {
     let server: any;
     const gracefulShutdown = async (signal: string) => {
       console.log(`\n🛑 ${signal} received, shutting down gracefully...`);
-      
+
       try {
         // Close HTTP server
         if (server) {
           server.close(() => {
-            console.log('✅ HTTP server closed');
+            console.log("✅ HTTP server closed");
           });
         }
-        
+
         // Close Redis connection with proper error handling
         try {
-          if (redisConnection.status !== 'end') {
+          if (redisConnection.status !== "end") {
             await redisConnection.quit();
-            console.log('✅ Redis connection closed');
+            console.log("✅ Redis connection closed");
           } else {
-            console.log('⚠️ Redis already disconnected');
+            console.log("⚠️ Redis already disconnected");
           }
         } catch (redisError) {
-          console.log('⚠️ Redis connection already closed or error during shutdown');
+          console.log(
+            "⚠️ Redis connection already closed or error during shutdown",
+          );
         }
-        
+
         // Close database connection
         // Note: Drizzle doesn't have explicit close method for serverless
-        
-        console.log('✅ Graceful shutdown completed');
+
+        console.log("✅ Graceful shutdown completed");
         process.exit(0);
       } catch (error) {
-        console.error('❌ Error during shutdown:', error);
+        console.error("❌ Error during shutdown:", error);
         process.exit(1);
       }
     };
 
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
     server = app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
-
   } catch (error) {
-    console.error('❌ Failed to initialize server:', error);
+    console.error("❌ Failed to initialize server:", error);
     process.exit(1);
   }
 }
