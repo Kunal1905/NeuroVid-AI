@@ -44,10 +44,32 @@ export const submitGeneration = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Authentication required" });
 
     const queue = generationQueue;
-    if (!queue || !redisConnection || redisConnection.status !== "ready") {
+    if (!queue || !redisConnection) {
       return res.status(503).json({
         error: "Queue unavailable",
-        details: "Redis is not ready. Set REDIS_URL and ensure Redis is reachable.",
+        details: "REDIS_URL is not set. Configure Redis to enable video generation.",
+      });
+    }
+
+    let redisReady = redisConnection.status === "ready";
+    if (!redisReady) {
+      try {
+        await Promise.race([
+          redisConnection.ping(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Redis ping timeout")), 3000),
+          ),
+        ]);
+        redisReady = true;
+      } catch {
+        redisReady = false;
+      }
+    }
+
+    if (!redisReady) {
+      return res.status(503).json({
+        error: "Queue unavailable",
+        details: "Redis is not reachable. Verify REDIS_URL and network access.",
       });
     }
 
