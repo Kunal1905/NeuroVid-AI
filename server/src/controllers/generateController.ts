@@ -5,6 +5,7 @@ import { db } from "../services/db";
 import { generations } from "../models/generate"; // ← make sure this matches your model file
 import { brainDominanceSurveys } from "../models/survey";
 import { generationQueue } from "../queues/generation.queue";
+import { redisConnection } from "../config/redis";
 
 /* ======================== GET LATEST GENERATION ======================== */
 export const getGeneration = async (req: Request, res: Response) => {
@@ -41,6 +42,14 @@ export const submitGeneration = async (req: Request, res: Response) => {
     const authUserId = (req as any).auth?.userId;
     if (!authUserId)
       return res.status(401).json({ error: "Authentication required" });
+
+    const queue = generationQueue;
+    if (!queue || !redisConnection || redisConnection.status !== "ready") {
+      return res.status(503).json({
+        error: "Queue unavailable",
+        details: "Redis is not ready. Set REDIS_URL and ensure Redis is reachable.",
+      });
+    }
 
     // Free trial limit: 3 videos per user
     const [{ count }] = await db
@@ -115,7 +124,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
     (async () => {
       try {
         const job = await Promise.race([
-          generationQueue.add(
+          queue.add(
             "generation-job",
             { sessionId },
             { attempts: 3, backoff: { type: "exponential", delay: 8000 } },
