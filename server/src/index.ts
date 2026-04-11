@@ -19,41 +19,56 @@ import { redisConnection } from "./config/redis";
 import { db } from "./services/db";
 
 const app = express();
-const PORT = 3005;
+const PORT = Number(process.env.PORT || 3005);
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath("/admin/queues");
 
 // Connect to Redis first before initializing BullMQ
 async function initializeServer() {
   try {
-    console.log("Connecting to Redis...");
-    // Avoid calling connect() when ioredis is already connecting/connected
-    if (redisConnection.status !== "ready") {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Redis connection timeout"));
-        }, 15000);
+    let redisReady = false;
+    if (redisConnection) {
+      console.log("Connecting to Redis...");
+      // Avoid calling connect() when ioredis is already connecting/connected
+      if (redisConnection.status !== "ready") {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error("Redis connection timeout"));
+            }, 15000);
 
-        const onReady = () => {
-          clearTimeout(timeout);
-          resolve();
-        };
-        const onError = (err: Error) => {
-          clearTimeout(timeout);
-          reject(err);
-        };
+            const onReady = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+            const onError = (err: Error) => {
+              clearTimeout(timeout);
+              reject(err);
+            };
 
-        redisConnection.once("ready", onReady);
-        redisConnection.once("error", onError);
+            redisConnection.once("ready", onReady);
+            redisConnection.once("error", onError);
+          });
+        } catch (error) {
+          console.warn("⚠️ Redis not ready. Continuing without queue features.");
+        }
+      }
+
+      if (redisConnection.status === "ready") {
+        redisReady = true;
+        console.log("✅ Redis connected successfully");
+      }
+    } else {
+      console.warn("⚠️ REDIS_URL not set. Queue features are disabled.");
+    }
+
+    // Initialize BullMQ board only when Redis is ready and queue is available
+    if (redisReady && generationQueue) {
+      createBullBoard({
+        queues: [new BullMQAdapter(generationQueue)],
+        serverAdapter,
       });
     }
-    console.log("✅ Redis connected successfully");
-
-    // Initialize BullMQ board after Redis is ready
-    createBullBoard({
-      queues: [new BullMQAdapter(generationQueue)],
-      serverAdapter,
-    });
 
     const allowedOrigins = [
       ...(process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || "http://localhost:3000")
@@ -98,6 +113,9 @@ async function initializeServer() {
 
     app.use(cors(corsOptions));
     app.use(express.json());
+    app.get("/ping", (_req, res) => {
+      res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+    });
     const hasClerk =
       !!process.env.CLERK_PUBLISHABLE_KEY && !!process.env.CLERK_SECRET_KEY;
     console.log("Clerk Enabled:", hasClerk);
@@ -146,24 +164,32 @@ async function initializeServer() {
 
         // Check Redis connection
         let redisStatus = "unknown";
-        try {
-          if (redisConnection.status === "ready") {
-            await redisConnection.ping();
-            redisStatus = "connected";
-          } else {
+        if (!redisConnection) {
+          redisStatus = "disabled";
+        } else {
+          try {
+            if (redisConnection.status === "ready") {
+              await redisConnection.ping();
+              redisStatus = "connected";
+            } else {
+              redisStatus = "disconnected";
+            }
+          } catch (redisError) {
             redisStatus = "disconnected";
           }
-        } catch (redisError) {
-          redisStatus = "disconnected";
         }
 
         // Check queue status
         let queueStatus = "unknown";
-        try {
-          const queueCount = await generationQueue.getJobCounts();
-          queueStatus = `active: ${queueCount.active}, waiting: ${queueCount.waiting}, failed: ${queueCount.failed}`;
-        } catch (queueError) {
-          queueStatus = "error";
+        if (!generationQueue) {
+          queueStatus = "disabled";
+        } else {
+          try {
+            const queueCount = await generationQueue.getJobCounts();
+            queueStatus = `active: ${queueCount.active}, waiting: ${queueCount.waiting}, failed: ${queueCount.failed}`;
+          } catch (queueError) {
+            queueStatus = "error";
+          }
         }
 
         const status =
@@ -218,7 +244,7 @@ async function initializeServer() {
 
         // Close Redis connection with proper error handling
         try {
-          if (redisConnection.status !== "end") {
+          if (redisConnection && redisConnection.status !== "end") {
             await redisConnection.quit();
             console.log("✅ Redis connection closed");
           } else {

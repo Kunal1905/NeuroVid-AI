@@ -34,6 +34,10 @@ class GenerationWorker {
   public worker: Worker;
 
   constructor() {
+    if (!redisForBull) {
+      throw new Error("REDIS_URL is not set. Worker cannot start.");
+    }
+
     this.worker = new Worker(
       "generation",
       async (job: Job<GenerationJobData>) => {
