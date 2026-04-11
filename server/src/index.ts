@@ -46,8 +46,8 @@ async function initializeServer() {
               reject(err);
             };
 
-            redisConnection.once("ready", onReady);
-            redisConnection.once("error", onError);
+            redisConnection!.once("ready", onReady);
+            redisConnection!.once("error", onError);
           });
         } catch (error) {
           console.warn("⚠️ Redis not ready. Continuing without queue features.");
@@ -169,7 +169,7 @@ async function initializeServer() {
         } else {
           try {
             if (redisConnection.status === "ready") {
-              await redisConnection.ping();
+              await redisConnection!.ping();
               redisStatus = "connected";
             } else {
               redisStatus = "disconnected";
