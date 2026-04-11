@@ -1,143 +1,158 @@
-🎥 NeuroVid AI – AI Learning Video Generator
+# NeuroVid AI - AI Learning Video Generator
 
-NeuroVid AI is an intelligent learning assistant that transforms educational prompts into structured video content using advanced AI models. It automates the workflow from script creation to video rendering, enabling students, educators, and creators to generate high-quality educational videos effortlessly.
+NeuroVid AI is a full-stack application that turns learning prompts into structured lessons, short quizzes, and generated video output. It demonstrates an end-to-end AI product workflow: authenticated users submit a topic, the system queues background jobs, generates content with Gemini, and delivers a finished result with status tracking.
 
+**Highlights**
+- End-to-end AI pipeline (prompt -> script -> quiz -> video)
+- Queue-based processing with BullMQ + Redis for scalability
+- Clerk authentication, usage limits, and Razorpay payments
+- Clean, modern Next.js UI with real-time progress updates
 
-👉 Live Demo: Open NeuroVid AI
+## Why I Built This
+I built NeuroVid AI to tackle a real learning pain point: turning dense topics into clear, visual explanations is time-consuming. The project is also a deliberate showcase of production-style engineering - background jobs, rate limiting, third-party integrations, and an observable backend - packaged into a user-friendly product.
 
+## How It Helps Users
+- **Students** get quick, bite-sized revision videos and quizzes.
+- **Educators** can generate structured lesson outlines faster.
+- **Creators** can bootstrap educational content at scale.
+- **EdTech teams** can prototype AI-powered learning flows quickly.
 
-🚀 Features :-
+## Key Features
+- **AI script and quiz generation** using Google Gemini.
+- **Video generation pipeline** with a pluggable service layer.
+- **Asynchronous jobs** via BullMQ workers with retries and progress.
+- **Brain-dominance personalization** from a short user survey.
+- **Secure authentication** and user gating with Clerk.
+- **Payments and plans** with Razorpay order creation and verification.
+- **Admin queue dashboard** at `/admin/queues` for job visibility.
+- **Health endpoint** at `/health` for service checks.
 
-🤖 AI Script Generation – Converts learning topics into well-structured scripts.
+## Architecture
+```
+Client (Next.js)
+   |
+   v
+API Server (Express)
+   |
+   v
+Postgres + Redis
+   |
+   v
+BullMQ Worker
+   |
+   v
+Gemini (script/quiz) + Video Provider
+```
 
-🎬 Automated Video Creation – Generates videos directly from AI-produced content.
+## Tech Stack
+- **Frontend:** Next.js 16, React 19, Tailwind CSS, Radix UI, Framer Motion
+- **Backend:** Node.js, Express, BullMQ, Drizzle ORM
+- **AI:** Google Gemini (LLM), optional Vertex AI (Veo)
+- **Infra:** Postgres, Redis
+- **Auth and Payments:** Clerk, Razorpay
 
-🔐 Secure Authentication – Integrated with Clerk for safe user management.
+## Project Structure
+- `client/` - Next.js frontend
+- `server/` - Express API and workers
+- `server/drizzle/` - SQL migrations
 
-⚡ Scalable Job Processing – Uses BullMQ for background video tasks.
+## Getting Started (VM Setup)
 
-🧠 LLM Integration – Supports modern AI models for intelligent responses.
+### 1) Prerequisites
+Make sure your VM has:
+- Node.js 20+ and npm
+- Git
+- Redis (local or hosted)
+- Postgres (local or hosted)
 
-☁️ Cloud Deployment – Hosted for fast and reliable performance.
-
-
-🛠️ Tech Stack
-
-Frontend
-
-Next.js
-
-React
-
-Tailwind CSS
-
-Backend
-
-Node.js
-
-BullMQ (for queue-based processing)
-
-AI / APIs
-
-LLM integrations
-
-Video generation APIs
-
-Authentication
-
-Clerk
-
-Deployment
-
-Vercel
-
-
-📌 How It Works
-
-1. User enters a learning topic.
-
-2. AI generates a structured educational script.
-
-3. The system processes the script asynchronously.
-
-4. Video is rendered automatically.
-
-5. User receives ready-to-watch educational content.
-
-
-💻 Installation & Setup
-1️⃣ Clone the Repository
+### 2) Clone the Repository
+```
 git clone https://github.com/Kunal1905/NeuroVid-AI.git
 cd NeuroVid-AI
+```
 
-2️⃣ Install Dependencies
+### 3) Install Dependencies
+```
+cd server
 npm install
 
-3️⃣ Configure Environment Variables
+cd ../client
+npm install
+```
 
-Create a .env file and add:
+### 4) Environment Variables
+Create two files:
 
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
+**`server/.env`**
+```
+DATABASE_URL=postgres://user:password@localhost:5432/neurovid
+REDIS_URL=redis://localhost:6379
+CLIENT_ORIGIN=http://localhost:3000
+PORT=3005
 
-DATABASE_URL=
+CLERK_SECRET_KEY=your_clerk_secret
+CLERK_PUBLISHABLE_KEY=your_clerk_publishable
 
-REDIS_URL=
+GOOGLE_API_KEY=your_gemini_api_key
+GOOGLE_CLOUD_PROJECT_ID=your_vertex_project_id   # optional (Veo)
 
-AI_API_KEY=
-VIDEO_API_KEY=
+RAZORPAY_KEY_ID=your_razorpay_key
+RAZORPAY_KEY_SECRET=your_razorpay_secret
 
-4️⃣ Run the Development Server
+ALLOW_VERCEL_PREVIEWS=false
+```
+
+**`client/.env.local`**
+```
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3005
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable
+NEXT_PUBLIC_RAZORPAY_KEY_ID=your_razorpay_key
+```
+
+### 5) Database Migrations
+From `server/`:
+```
+npm run db:migrate
+```
+
+### 6) Run the App
+Open three terminals:
+
+**API server**
+```
+cd server
 npm run dev
+```
 
+**Worker**
+```
+cd server
+npm run worker
+```
 
-⚙️ Architecture Overview
-User → Prompt Input
-        ↓
-     AI Script Engine
-        ↓
-   Queue (BullMQ)
-        ↓
- Video Generation Service
-        ↓
-     Delivered to User
+**Frontend**
+```
+cd client
+npm run dev
+```
 
+The app will be available at `http://localhost:3000` and the API at `http://localhost:3005`.
 
-This architecture ensures non-blocking processing, allowing the app to scale efficiently under heavy workloads.
+## Usage Flow
+1. Sign up or log in.
+2. Complete the brain-dominance survey for personalization.
+3. Enter a topic and submit generation.
+4. Track progress and view the final video output.
 
+## Notes on Video Generation
+The current `veoService` returns a placeholder URL for local development. The project also includes a Vertex AI (Veo) integration stub that can be wired in for real video output.
 
-🎯 Use Cases
-
-- Students creating revision videos
-
-- Educators generating teaching content
-
-- YouTubers automating educational production
-
-- EdTech platforms scaling content creation
-
-
-🔥 Challenges Faced
-
-- Handling long AI responses efficiently
-
-- Managing asynchronous video jobs
-
-- Securing API keys and authentication
-
-- Optimizing rendering time
-
-- Designing a scalable architecture
-
-
-🚧 Future Improvements
-
+## Roadmap
 - Multi-language video support
-
 - Voice customization
-
-- Avatar-based teaching videos
-
+- Avatar-based lessons
 - Real-time generation preview
+- Mobile-first optimization
 
-- Mobile optimization
+## License
+MIT
