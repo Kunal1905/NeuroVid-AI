@@ -54,14 +54,15 @@ async function initializeServer() {
         }
       }
 
-      if (redisConnection.status === "ready") {
+      const redis = redisConnection;
+      if (redis.status === "ready") {
         redisReady = true;
         console.log("✅ Redis connected successfully");
         // Keep the connection warm to avoid idle disconnects on serverless Redis
         setInterval(async () => {
           try {
-            if (redisConnection.status === "ready") {
-              await redisConnection.ping();
+            if (redis.status === "ready") {
+              await redis.ping();
             }
           } catch {
             // Ignore ping failures; reconnect logic will handle it
