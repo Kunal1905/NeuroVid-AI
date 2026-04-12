@@ -57,6 +57,16 @@ async function initializeServer() {
       if (redisConnection.status === "ready") {
         redisReady = true;
         console.log("✅ Redis connected successfully");
+        // Keep the connection warm to avoid idle disconnects on serverless Redis
+        setInterval(async () => {
+          try {
+            if (redisConnection.status === "ready") {
+              await redisConnection.ping();
+            }
+          } catch {
+            // Ignore ping failures; reconnect logic will handle it
+          }
+        }, 60000).unref();
       }
     } else {
       console.warn("⚠️ REDIS_URL not set. Queue features are disabled.");
