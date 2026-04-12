@@ -23,9 +23,11 @@ export const getSurvey = async (req: Request, res: Response) => {
   const [surveyData] = await db.select().from(brainDominanceSurveys).where(eq(brainDominanceSurveys.userId, authUser)).limit(1);
 
   if (!surveyData) {
-      return res.status(404).json({ error: 'Brain Dominance survey must be completed first' });
-    }
-    res.json(surveyData);
+    // New user - no survey completed yet
+    return res.status(200).json({ completed: false, data: null });
+  }
+  
+  res.status(200).json({ completed: true, data: surveyData });
 
   } catch (error) {
     console.error('Error fetching user:', error);
