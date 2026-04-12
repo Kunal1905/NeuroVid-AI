@@ -12,6 +12,7 @@ import {
   Play,
   CheckCircle,
   Loader2,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -35,6 +36,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiUrl } from "@/lib/api";
+import PlanLimitReached from "@/components/PlanLimitReached";
+import { AlertTriangle } from "lucide-react";
 
 export default function Generate() {
   const { user } = useUser();
@@ -59,6 +62,7 @@ export default function Generate() {
   >("idle");
   const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showPlanLimit, setShowPlanLimit] = useState(false);
 
   // Brain dominance (unchanged)
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
@@ -136,8 +140,7 @@ export default function Generate() {
 
       if (res.status === 429) {
         const err = await res.json();
-        setStatus("error");
-        setErrorMsg(err?.error || "Free trial limit reached");
+        setShowPlanLimit(true);
         setIsGenerating(false);
         return;
       }
@@ -162,28 +165,61 @@ export default function Generate() {
   };
 
   const pollStatus = async (sid: string) => {
+    let pollCount = 0;
+    const maxPolls = 120; // 5 minutes max (120 * 2.5s = 300s)
+    let consecutiveFailures = 0;
+    const maxConsecutiveFailures = 3;
+
     const interval = setInterval(async () => {
-      const token = await getToken();
-      const res = await fetch(apiUrl(`/api/generate/status/${sid}`), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      pollCount++;
 
-      if (res.ok) {
-        const data = await res.json();
-        const progressValue = Number(data.progress || 0);
-        setProgress(progressValue);
+      // Timeout after 5 minutes
+      if (pollCount > maxPolls) {
+        clearInterval(interval);
+        setStatus("error");
+        setErrorMsg("Generation timed out. Please try again.");
+        return;
+      }
 
-        if (data.status === "COMPLETED") {
-          setVideoUrl(data.videoUrl);
-          setStatus("completed");
-          setProgress(100);
-          clearInterval(interval);
+      try {
+        const token = await getToken();
+        const res = await fetch(apiUrl(`/api/generate/status/${sid}`), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          consecutiveFailures = 0; // Reset failure counter
+          const data = await res.json();
+          const progressValue = Number(data.progress || 0);
+          setProgress(progressValue);
+
+          if (data.status === "COMPLETED") {
+            setVideoUrl(data.videoUrl);
+            setStatus("completed");
+            setProgress(100);
+            clearInterval(interval);
+          } else if (data.status === "FAILED") {
+            clearInterval(interval);
+            setStatus("error");
+            setErrorMsg("Video generation failed. Please try again.");
+          } else if (data.status && data.status !== "COMPLETED") {
+            setStatus("processing");
+          }
+        } else {
+          consecutiveFailures++;
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            clearInterval(interval);
+            setStatus("error");
+            setErrorMsg("Failed to check generation status. Please try again.");
+          }
         }
-        if (data.status === "FAILED") {
+      } catch (error) {
+        console.error("Polling error:", error);
+        consecutiveFailures++;
+        if (consecutiveFailures >= maxConsecutiveFailures) {
           clearInterval(interval);
           setStatus("error");
-        } else if (data.status && data.status !== "COMPLETED") {
-          setStatus("processing");
+          setErrorMsg("Network error. Please check your connection and try again.");
         }
       }
     }, 2500);
@@ -229,8 +265,13 @@ export default function Generate() {
           </p>
           <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300">
             Videos this month:{" "}
-            <span className="text-violet-300 font-semibold">
+            <span className={`font-semibold flex items-center gap-1 ${
+              usage.used >= usage.limit ? "text-red-400" : "text-violet-300"
+            }`}>
               {usage.used} / {usage.limit}
+              {usage.used >= usage.limit && (
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+              )}
             </span>
           </div>
         </motion.div>
@@ -697,7 +738,7 @@ export default function Generate() {
                   </div>
                 </div>
 
-                {progress < 100 ? (
+                {progress < 100 && status !== "error" ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 text-sm text-gray-300">
                       <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
@@ -715,6 +756,57 @@ export default function Generate() {
                       <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
 
                       <span>Creating slides and visuals...</span>
+                    </div>
+                  </div>
+                ) : status === "error" ? (
+                  <div className="text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-red-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
+                      </svg>
+                    </div>
+
+                    <h4 className="text-xl font-bold text-white mb-2">
+                      Generation Failed
+                    </h4>
+
+                    <p className="text-gray-400 text-sm mb-6">
+                      {errorMsg ||
+                        "Something went wrong while generating your video. This could be due to a temporary issue with our AI service."}
+                    </p>
+
+                    <div className="flex gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          closeModal();
+                          router.push("/dashboard");
+                        }}
+                        className="flex-1 border-gray-700 text-white hover:bg-gray-800"
+                      >
+                        <LayoutDashboard className="w-4 h-4 mr-2" />
+                        Go to Dashboard
+                      </Button>
+
+                      <Button
+                        className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
+                        onClick={() => {
+                          closeModal();
+                        }}
+                      >
+                        <Zap className="w-4 h-4 mr-2" />
+                        Try Again
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -750,6 +842,13 @@ export default function Generate() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PLAN LIMIT REACHED MODAL */}
+      <AnimatePresence>
+        {showPlanLimit && (
+          <PlanLimitReached onReset={() => setShowPlanLimit(false)} />
         )}
       </AnimatePresence>
     </div>
