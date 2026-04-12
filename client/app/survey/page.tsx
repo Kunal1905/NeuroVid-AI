@@ -279,10 +279,9 @@ export default function BrainDominanceSurveyPage() {
     apiUrl("/api/survey/submitSurvey"),
     {
       method: "POST",
-      credentials: "include", // This ensures cookies are sent with the request
       headers: {
         "Content-Type": "application/json",
-        // Remove the Authorization header - Clerk will use session cookies
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify({
         leftScore : calculated.left_score,
@@ -293,7 +292,8 @@ export default function BrainDominanceSurveyPage() {
   );
 
   if (!res.ok) {
-    console.error("Failed to submit survey");
+    const error = await res.json().catch(() => ({}));
+    console.error("Failed to submit survey:", error);
     return;
   }
 
