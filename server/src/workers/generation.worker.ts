@@ -86,6 +86,10 @@ class GenerationWorker {
       if (!db) {
         throw new Error("Database disabled: set DATABASE_URL");
       }
+      
+      // Stage 0: Job received
+      await this.updateStatus(sessionId, "QUEUED", 10);
+      
       // Fetch generation data from database
       console.time(`job:${job.id}:getGeneration`);
       const generation = await this.getGeneration(sessionId);
@@ -101,34 +105,44 @@ class GenerationWorker {
       // Stage 1: Generate Script
       console.time(`job:${job.id}:generateScript`);
       await this.updateStatus(sessionId, "GENERATING_SCRIPT", 20);
+      console.log(`📝 Starting script generation...`);
       const script = await this.generateScript(generation);
       console.timeEnd(`job:${job.id}:generateScript`);
-      console.log(`📝 Script generated for session: ${sessionId}`);
+      console.log(`✅ Script generated successfully for session: ${sessionId}`);
 
       // Stage 2: Generate Quiz
       console.time(`job:${job.id}:generateQuiz`);
       await this.updateStatus(sessionId, "GENERATING_QUIZ", 40);
+      console.log(`❓ Starting quiz generation...`);
       const quiz = await this.generateQuiz(generation, script);
       console.timeEnd(`job:${job.id}:generateQuiz`);
-      console.log(`❓ Quiz generated for session: ${sessionId}`);
+      console.log(`✅ Quiz generated successfully for session: ${sessionId}`);
 
       // Stage 3: Generate Video
       console.time(`job:${job.id}:generateVideo`);
       await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
+      console.log(`🎬 Starting video generation...`);
       const videoUrl = await this.generateVideo(script);
       console.timeEnd(`job:${job.id}:generateVideo`);
-      console.log(`🎬 Video generated for session: ${sessionId}`);
+      console.log(`✅ Video generated successfully for session: ${sessionId}`);
 
       // Stage 4: Complete Generation
       console.time(`job:${job.id}:saveResults`);
-      await this.updateStatus(sessionId, "COMPLETED", 100);
+      await this.updateStatus(sessionId, "SAVING_RESULTS", 90);
+      console.log(`💾 Saving results to database...`);
       await this.saveResults(sessionId, script, quiz, videoUrl);
+      await this.updateStatus(sessionId, "COMPLETED", 100);
       console.timeEnd(`job:${job.id}:saveResults`);
 
-      console.log(`🎉 Generation completed for session: ${sessionId}`);
+      console.log(`🎉 Generation completed successfully for session: ${sessionId}`);
       console.timeEnd(`job:${job.id}:total`);
     } catch (error) {
       console.error(`💥 Error processing job ${job.id}:`, error);
+      console.error(`Error details:`, {
+        message: (error as Error)?.message,
+        stack: (error as Error)?.stack,
+        name: (error as Error)?.name,
+      });
       await this.handleError(sessionId, error as Error);
       throw error; // Re-throw to trigger job retry
     }

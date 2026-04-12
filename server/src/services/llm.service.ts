@@ -9,14 +9,22 @@ export default async function llmService(prompt: string): Promise<string> {
     throw new Error("LLM unavailable: missing GOOGLE_API_KEY");
   }
   try {
+    console.log('[LLM] Sending request to Gemini API...');
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     if (!text || !text.trim()) {
       throw new Error("LLM returned empty response");
     }
+    console.log(`[LLM] Response received: ${text.length} characters`);
     return text.trim();
   } catch (err: any) {
+    console.error('[LLM] Gemini API Error:', {
+      message: err?.message,
+      status: err?.status,
+      code: err?.code,
+      details: err?.errorDetails || 'No details'
+    });
     throw new Error(`LLM error: ${err?.message || "unknown error"}`);
   }
 }
