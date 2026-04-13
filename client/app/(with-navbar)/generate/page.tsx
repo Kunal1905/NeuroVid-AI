@@ -63,6 +63,7 @@ export default function Generate() {
   const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   // Brain dominance (unchanged)
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
@@ -119,6 +120,12 @@ export default function Generate() {
     setStatus("queued");
     setProgress(10);
     setErrorMsg(null);
+    setElapsedTime(0);
+
+    // Start elapsed time counter
+    const timerInterval = setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
 
     try {
       const token = await getToken();
@@ -141,6 +148,20 @@ export default function Generate() {
       if (res.status === 429) {
         const err = await res.json();
         setShowPlanLimit(true);
+        clearInterval(timerInterval);
+        setIsGenerating(false);
+        return;
+      }
+
+      if (res.status === 403) {
+        const err = await res.json();
+        setStatus("error");
+        setErrorMsg(
+          err?.error === "Brain dominance survey not completed"
+            ? "Please complete the brain dominance survey before generating videos."
+            : err?.error || "Access denied. Please try again."
+        );
+        clearInterval(timerInterval);
         setIsGenerating(false);
         return;
       }
@@ -159,6 +180,7 @@ export default function Generate() {
     } catch (error) {
       console.error("Error submitting generation:", error);
       setStatus("error");
+      clearInterval(timerInterval);
     } finally {
       setIsGenerating(false);
     }
@@ -177,7 +199,7 @@ export default function Generate() {
       if (pollCount > maxPolls) {
         clearInterval(interval);
         setStatus("error");
-        setErrorMsg("Generation timed out. Please try again.");
+        setErrorMsg("Generation timed out after 5 minutes. Please try again.");
         return;
       }
 
@@ -240,6 +262,7 @@ export default function Generate() {
     setVideoUrl(null);
     setStatus("idle");
     setErrorMsg(null);
+    setElapsedTime(0);
   };
 
   return (
@@ -718,6 +741,14 @@ export default function Generate() {
                   Processing your content and generating personalized video...
                 </p>
 
+                {/* Elapsed Time Display */}
+                <div className="mb-4 flex items-center justify-center gap-2 text-sm text-violet-400">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-mono">
+                    {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+
                 <div className="mb-6">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-400">Progress</span>
@@ -740,23 +771,49 @@ export default function Generate() {
 
                 {progress < 100 && status !== "error" ? (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-3 text-sm text-gray-300">
-                      <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
-
-                      <span>Analyzing your topic...</span>
+                    <div className={`flex items-center gap-3 text-sm ${
+                      progress >= 20 ? "text-green-400" : "text-gray-300"
+                    }`}>
+                      {progress >= 20 ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+                      )}
+                      <span>{progress >= 20 ? "Topic analyzed" : "Analyzing your topic..."}</span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-sm text-gray-300">
-                      <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
-
-                      <span>Generating content outline...</span>
+                    <div className={`flex items-center gap-3 text-sm ${
+                      progress >= 40 ? "text-green-400" : progress < 20 ? "text-gray-500" : "text-gray-300"
+                    }`}>
+                      {progress >= 40 ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : progress >= 20 ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+                      ) : (
+                        <div className="w-4 h-4" />
+                      )}
+                      <span>{progress >= 40 ? "Content outline generated" : "Generating content outline..."}</span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-sm text-gray-300">
-                      <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
-
-                      <span>Creating slides and visuals...</span>
+                    <div className={`flex items-center gap-3 text-sm ${
+                      progress >= 60 ? "text-green-400" : progress < 40 ? "text-gray-500" : "text-gray-300"
+                    }`}>
+                      {progress >= 60 ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : progress >= 40 ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+                      ) : (
+                        <div className="w-4 h-4" />
+                      )}
+                      <span>{progress >= 60 ? "Video created" : "Creating slides and visuals..."}</span>
                     </div>
+
+                    {progress >= 90 && progress < 100 && (
+                      <div className="flex items-center gap-3 text-sm text-violet-400">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Saving your video...</span>
+                      </div>
+                    )}
                   </div>
                 ) : status === "error" ? (
                   <div className="text-center">
@@ -777,7 +834,7 @@ export default function Generate() {
                     </div>
 
                     <h4 className="text-xl font-bold text-white mb-2">
-                      Generation Failed
+                      {errorMsg?.includes("survey") ? "Survey Required" : "Generation Failed"}
                     </h4>
 
                     <p className="text-gray-400 text-sm mb-6">
@@ -786,27 +843,42 @@ export default function Generate() {
                     </p>
 
                     <div className="flex gap-3">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          closeModal();
-                          router.push("/dashboard");
-                        }}
-                        className="flex-1 border-gray-700 text-white hover:bg-gray-800"
-                      >
-                        <LayoutDashboard className="w-4 h-4 mr-2" />
-                        Go to Dashboard
-                      </Button>
+                      {errorMsg?.includes("survey") ? (
+                        <Button
+                          className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
+                          onClick={() => {
+                            closeModal();
+                            router.push("/survey");
+                          }}
+                        >
+                          <Brain className="w-4 h-4 mr-2" />
+                          Complete Survey
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              closeModal();
+                              router.push("/dashboard");
+                            }}
+                            className="flex-1 border-gray-700 text-white hover:bg-gray-800"
+                          >
+                            <LayoutDashboard className="w-4 h-4 mr-2" />
+                            Go to Dashboard
+                          </Button>
 
-                      <Button
-                        className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
-                        onClick={() => {
-                          closeModal();
-                        }}
-                      >
-                        <Zap className="w-4 h-4 mr-2" />
-                        Try Again
-                      </Button>
+                          <Button
+                            className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
+                            onClick={() => {
+                              closeModal();
+                            }}
+                          >
+                            <Zap className="w-4 h-4 mr-2" />
+                            Try Again
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
