@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { fetch } from "undici";
 
 const API_KEY = process.env.GOOGLE_API_KEY || process.env.GOOGLE_API || "";
 
@@ -8,6 +9,8 @@ const PRIMARY_MODEL = process.env.LLM_MODEL || "gemini-2.5-flash";
 // Use a known v1beta-supported model as fallback
 const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "gemini-2.0-flash";
 const MAX_RETRIES = Number(process.env.LLM_MAX_RETRIES || 3);
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -36,6 +39,62 @@ const extractRetryDelayMs = (err: any): number | null => {
 type LlmContext = {
   sessionId?: string;
   stage?: string;
+};
+
+const groqChatCompletion = async (
+  prompt: string,
+  context: LlmContext,
+): Promise<string> => {
+  if (!GROQ_API_KEY) {
+    throw new Error("Groq unavailable: missing GROQ_API_KEY");
+  }
+  const ctxLabel = `[GROQ${context.stage ? `:${context.stage}` : ""}${
+    context.sessionId ? `:${context.sessionId}` : ""
+  }]`;
+  console.log(
+    `${ctxLabel} Sending request to Groq... model=${GROQ_MODEL} promptLength=${prompt.length}`,
+  );
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant. Return only the requested JSON.",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    console.error(`${ctxLabel} Groq API Error:`, response.status, text);
+    throw new Error(`Groq error: ${response.status}`);
+  }
+
+  const data = await response.json() as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+      };
+    }>;
+  };
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content || !String(content).trim()) {
+    throw new Error("Groq returned empty response");
+  }
+  console.log(
+    `${ctxLabel} Response received: ${String(content).length} characters (model=${GROQ_MODEL})`,
+  );
+  return String(content).trim();
 };
 
 export default async function llmService(
@@ -90,6 +149,13 @@ export default async function llmService(
           await sleep(backoffMs);
         }
       }
+    }
+
+    if (GROQ_API_KEY) {
+      console.log(
+        `${ctxLabel} Gemini exhausted. Falling back to Groq model=${GROQ_MODEL}`,
+      );
+      return await groqChatCompletion(prompt, context);
     }
 
     throw new Error("LLM error: all retries exhausted");
