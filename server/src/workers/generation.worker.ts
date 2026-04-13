@@ -125,10 +125,25 @@ class GenerationWorker {
         await this.updateStatus(sessionId, "GENERATING_QUIZ", 40);
         console.log(`❓ Starting quiz generation...`);
         quiz = await this.generateQuiz(generation, script);
+        console.log(`✅ Quiz generated successfully for session: ${sessionId}`);
+      } catch (quizError) {
+        const allowQuizFailure =
+          process.env.ALLOW_QUIZ_FAILURE !== "false";
+        console.error(
+          `⚠️ Quiz generation failed for session: ${sessionId}`,
+          (quizError as Error)?.message,
+        );
+        if (!allowQuizFailure) {
+          throw quizError;
+        }
+        // Fallback: continue without quiz to avoid blocking video generation
+        quiz = { questions: [] };
+        console.log(
+          `➡️ Continuing without quiz for session: ${sessionId} (ALLOW_QUIZ_FAILURE=${allowQuizFailure})`,
+        );
       } finally {
         console.timeEnd(`job:${job.id}:generateQuiz`);
       }
-      console.log(`✅ Quiz generated successfully for session: ${sessionId}`);
 
       // Stage 3: Generate Video
       console.time(`job:${job.id}:generateVideo`);
