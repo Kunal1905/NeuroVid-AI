@@ -369,13 +369,38 @@ Rules:
       }
 
       console.log(`🎥 Veo request length: ${fullScript.length}`);
-      const videoUrl = await veoService.createVideo({ script: fullScript });
 
-      if (!videoUrl) {
-        throw new Error("Video generation returned empty URL");
+      const maxRetries = Number(process.env.VIDEO_MAX_RETRIES || 3);
+      const shouldRetry = (err: any) => {
+        const status = err?.status;
+        if ([429, 500, 502, 503, 504].includes(status)) return true;
+        const msg = String(err?.message || "").toLowerCase();
+        return msg.includes("timeout") || msg.includes("rate");
+      };
+
+      let lastError: any;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          console.log(`🎬 Veo attempt ${attempt + 1}/${maxRetries}`);
+          const videoUrl = await veoService.createVideo({ script: fullScript });
+          if (!videoUrl) {
+            throw new Error("Video generation returned empty URL");
+          }
+          return videoUrl;
+        } catch (err) {
+          lastError = err;
+          console.error("Error generating video:", err);
+          if (!shouldRetry(err) || attempt === maxRetries - 1) {
+            break;
+          }
+          const backoffMs =
+            Math.min(8000, 1000 * 2 ** attempt) +
+            Math.floor(Math.random() * 250);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
       }
 
-      return videoUrl;
+      throw lastError || new Error("Video generation failed");
     } catch (error) {
       console.error("Error generating video:", error);
       throw new Error(`Video generation failed: ${(error as Error).message}`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Video,
@@ -63,8 +63,6 @@ export default function Generate() {
   const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
-  const [remainingTime, setRemainingTime] = useState(0);
-  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Brain dominance (unchanged)
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
@@ -121,25 +119,6 @@ export default function Generate() {
     setStatus("queued");
     setProgress(10);
     setErrorMsg(null);
-    const estimatedSeconds = Math.max(0, Math.round(duration[0] * 15));
-    setRemainingTime(estimatedSeconds);
-
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-    }
-
-    // Start countdown timer
-    const timerInterval = setInterval(() => {
-      setRemainingTime((prev) => {
-        const next = Math.max(0, prev - 1);
-        if (next === 0) {
-          clearInterval(timerInterval);
-        }
-        return next;
-      });
-    }, 1000);
-    countdownIntervalRef.current = timerInterval;
-
     try {
       const token = await getToken();
       console.log("[generate] submit payload", {
@@ -170,7 +149,6 @@ export default function Generate() {
         const err = await res.json();
         console.log("[generate] submit 429 response", err);
         setShowPlanLimit(true);
-        clearInterval(timerInterval);
         setIsGenerating(false);
         return;
       }
@@ -184,7 +162,6 @@ export default function Generate() {
             ? "Please complete the brain dominance survey before generating videos."
             : err?.error || "Access denied. Please try again."
         );
-        clearInterval(timerInterval);
         setIsGenerating(false);
         return;
       }
@@ -205,7 +182,6 @@ export default function Generate() {
     } catch (error) {
       console.error("Error submitting generation:", error);
       setStatus("error");
-      clearInterval(timerInterval);
     } finally {
       setIsGenerating(false);
     }
@@ -223,9 +199,6 @@ export default function Generate() {
       // Timeout after 5 minutes
       if (pollCount > maxPolls) {
         clearInterval(interval);
-        if (countdownIntervalRef.current) {
-          clearInterval(countdownIntervalRef.current);
-        }
         setStatus("error");
         setErrorMsg("Generation timed out after 5 minutes. Please try again.");
         return;
@@ -249,14 +222,8 @@ export default function Generate() {
             setStatus("completed");
             setProgress(100);
             clearInterval(interval);
-            if (countdownIntervalRef.current) {
-              clearInterval(countdownIntervalRef.current);
-            }
           } else if (data.status === "FAILED") {
             clearInterval(interval);
-            if (countdownIntervalRef.current) {
-              clearInterval(countdownIntervalRef.current);
-            }
             setStatus("error");
             setErrorMsg("Video generation failed. Please try again.");
           } else if (data.status && data.status !== "COMPLETED") {
@@ -267,9 +234,6 @@ export default function Generate() {
           console.log("[generate] status non-200", res.status);
           if (consecutiveFailures >= maxConsecutiveFailures) {
             clearInterval(interval);
-            if (countdownIntervalRef.current) {
-              clearInterval(countdownIntervalRef.current);
-            }
             setStatus("error");
             setErrorMsg("Failed to check generation status. Please try again.");
           }
@@ -279,9 +243,6 @@ export default function Generate() {
         consecutiveFailures++;
         if (consecutiveFailures >= maxConsecutiveFailures) {
           clearInterval(interval);
-          if (countdownIntervalRef.current) {
-            clearInterval(countdownIntervalRef.current);
-          }
           setStatus("error");
           setErrorMsg("Network error. Please check your connection and try again.");
         }
@@ -304,10 +265,6 @@ export default function Generate() {
     setVideoUrl(null);
     setStatus("idle");
     setErrorMsg(null);
-    setRemainingTime(0);
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-    }
   };
 
   return (
@@ -786,14 +743,7 @@ export default function Generate() {
                   Processing your content and generating personalized video...
                 </p>
 
-                {/* Countdown Display */}
-                <div className="mb-4 flex items-center justify-center gap-2 text-sm text-violet-400">
-                  <Clock className="w-4 h-4" />
-                  <span className="font-mono">
-                    {Math.floor(remainingTime / 60)}:
-                    {(remainingTime % 60).toString().padStart(2, "0")}
-                  </span>
-                </div>
+                {/* Countdown removed per request */}
 
                 <div className="mb-6">
                   <div className="flex justify-between text-sm mb-2">
@@ -890,16 +840,27 @@ export default function Generate() {
 
                     <div className="flex gap-3">
                       {errorMsg?.includes("survey") ? (
-                        <Button
-                          className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
-                          onClick={() => {
-                            closeModal();
-                            router.push("/survey");
-                          }}
-                        >
-                          <Brain className="w-4 h-4 mr-2" />
-                          Complete Survey
-                        </Button>
+                        brainDominance ? (
+                          <div className="flex-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-left">
+                            <div className="text-xs text-violet-300 uppercase tracking-wide">
+                              Brain Dominance
+                            </div>
+                            <div className="mt-1 text-sm font-medium text-violet-200 capitalize">
+                              {brainDominance} Brain
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            className="flex-1 bg-gradient-to-r from-violet-600 to-blue-600"
+                            onClick={() => {
+                              closeModal();
+                              router.push("/survey");
+                            }}
+                          >
+                            <Brain className="w-4 h-4 mr-2" />
+                            Complete Survey
+                          </Button>
+                        )
                       ) : (
                         <>
                           <Button
