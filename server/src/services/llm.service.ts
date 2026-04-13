@@ -33,18 +33,29 @@ const extractRetryDelayMs = (err: any): number | null => {
   return null;
 };
 
-export default async function llmService(prompt: string): Promise<string> {
+type LlmContext = {
+  sessionId?: string;
+  stage?: string;
+};
+
+export default async function llmService(
+  prompt: string,
+  context: LlmContext = {},
+): Promise<string> {
   if (!genAI) {
     throw new Error("LLM unavailable: missing GOOGLE_API_KEY");
   }
   try {
     const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
+    const ctxLabel = `[LLM${context.stage ? `:${context.stage}` : ""}${
+      context.sessionId ? `:${context.sessionId}` : ""
+    }]`;
 
     for (const modelName of models) {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
           console.log(
-            `[LLM] Sending request to Gemini API... model=${modelName} attempt=${attempt + 1}/${MAX_RETRIES}`,
+            `${ctxLabel} Sending request to Gemini API... model=${modelName} attempt=${attempt + 1}/${MAX_RETRIES} promptLength=${prompt.length}`,
           );
           const model = genAI.getGenerativeModel({ model: modelName });
           const result = await model.generateContent(prompt);
@@ -53,11 +64,11 @@ export default async function llmService(prompt: string): Promise<string> {
             throw new Error("LLM returned empty response");
           }
           console.log(
-            `[LLM] Response received: ${text.length} characters (model=${modelName})`,
+            `${ctxLabel} Response received: ${text.length} characters (model=${modelName})`,
           );
           return text.trim();
         } catch (err: any) {
-          console.error("[LLM] Gemini API Error:", {
+          console.error(`${ctxLabel} Gemini API Error:`, {
             message: err?.message,
             status: err?.status,
             code: err?.code,
@@ -73,7 +84,9 @@ export default async function llmService(prompt: string): Promise<string> {
             retryDelayMs ??
             (Math.min(8000, 1000 * 2 ** attempt) +
               Math.floor(Math.random() * 250));
-          console.log(`[LLM] Backing off for ${backoffMs}ms`);
+          console.log(
+            `${ctxLabel} Backing off for ${backoffMs}ms${retryDelayMs ? " (server suggested)" : ""}`,
+          );
           await sleep(backoffMs);
         }
       }

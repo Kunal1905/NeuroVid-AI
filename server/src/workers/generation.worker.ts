@@ -241,6 +241,9 @@ class GenerationWorker {
       } catch {
         const match = text.match(/\{[\s\S]*\}/);
         if (match) return JSON.parse(match[0]);
+        console.error(
+          `❌ Script JSON parse failed. Response preview: ${text.slice(0, 400)}`,
+        );
         throw new Error(`Non-JSON LLM response: ${text.slice(0, 200)}`);
       }
     }
@@ -276,7 +279,10 @@ Rules:
 `;
 
     try {
-      const scriptText = await llmService(prompt);
+      const scriptText = await llmService(prompt, {
+        sessionId: generation.sessionId,
+        stage: "script",
+      });
       console.log(`🧪 Script raw length: ${scriptText?.length ?? 0}`);
       const script = safeParseJson(scriptText);
 
@@ -333,10 +339,16 @@ Rules:
       } catch {
         const match = text.match(/\{[\s\S]*\}/);
         if (match) return JSON.parse(match[0]);
+        console.error(
+          `❌ Quiz JSON parse failed. Response preview: ${text.slice(0, 400)}`,
+        );
         throw new Error(`Non-JSON LLM response: ${text.slice(0, 200)}`);
       }
     }
-      const quizText = await llmService(quizPrompt);
+      const quizText = await llmService(quizPrompt, {
+        sessionId: generation.sessionId,
+        stage: "quiz",
+      });
       console.log(`🧪 Quiz raw length: ${quizText?.length ?? 0}`);
       const quiz = safeParseJson(quizText);
 
