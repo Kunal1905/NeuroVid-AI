@@ -60,6 +60,7 @@ export default function Generate() {
   const [status, setStatus] = useState<
     "idle" | "queued" | "processing" | "completed" | "error"
   >("idle");
+  const [llmBusy, setLlmBusy] = useState(false);
   const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
@@ -216,6 +217,10 @@ export default function Generate() {
           console.log("[generate] status response", data);
           const progressValue = Number(data.progress || 0);
           setProgress(progressValue);
+          const updatedAtMs = data.updatedAt ? new Date(data.updatedAt).getTime() : Date.now();
+          const now = Date.now();
+          const staleSeconds = Math.max(0, Math.floor((now - updatedAtMs) / 1000));
+          setLlmBusy(data.status === "GENERATING_SCRIPT" && staleSeconds >= 20);
 
           if (data.status === "COMPLETED") {
             setVideoUrl(data.videoUrl);
@@ -226,6 +231,7 @@ export default function Generate() {
             clearInterval(interval);
             setStatus("error");
             setErrorMsg("Video generation failed. Please try again.");
+            setLlmBusy(false);
           } else if (data.status && data.status !== "COMPLETED") {
             setStatus("processing");
           }
@@ -236,6 +242,7 @@ export default function Generate() {
             clearInterval(interval);
             setStatus("error");
             setErrorMsg("Failed to check generation status. Please try again.");
+            setLlmBusy(false);
           }
         }
       } catch (error) {
@@ -245,6 +252,7 @@ export default function Generate() {
           clearInterval(interval);
           setStatus("error");
           setErrorMsg("Network error. Please check your connection and try again.");
+          setLlmBusy(false);
         }
       }
     }, 2500);
@@ -265,6 +273,7 @@ export default function Generate() {
     setVideoUrl(null);
     setStatus("idle");
     setErrorMsg(null);
+    setLlmBusy(false);
   };
 
   return (
@@ -775,7 +784,9 @@ export default function Generate() {
                       ) : (
                         <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
                       )}
-                      <span>{progress >= 20 ? "Topic analyzed" : "Analyzing your topic..."}</span>
+                      <span>
+                        {progress >= 20 ? "Topic analyzed" : "Analyzing your topic..."}
+                      </span>
                     </div>
 
                     <div className={`flex items-center gap-3 text-sm ${
@@ -788,7 +799,13 @@ export default function Generate() {
                       ) : (
                         <div className="w-4 h-4" />
                       )}
-                      <span>{progress >= 40 ? "Content outline generated" : "Generating content outline..."}</span>
+                      <span>
+                        {progress >= 40
+                          ? "Content outline generated"
+                          : llmBusy
+                            ? "AI is busy, retrying..."
+                            : "Generating content outline..."}
+                      </span>
                     </div>
 
                     <div className={`flex items-center gap-3 text-sm ${

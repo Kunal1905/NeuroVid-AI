@@ -246,6 +246,7 @@ export const getGenerationStatus = async (req: Request, res: Response) => {
       status: gen.status,
       progress: gen.progress,
       videoUrl: gen.videoUrl,
+      updatedAt: gen.updatedAt,
     });
   } catch (error) {
     console.error("Error in getGenerationStatus:", error);
