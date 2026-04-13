@@ -81,6 +81,11 @@ async function initializeServer() {
       });
     }
 
+    if (redisReady && process.env.START_WORKER_IN_PROCESS === "true") {
+      console.log("🧵 Starting generation worker in server process...");
+      await import("./workers");
+    }
+
     const allowedOrigins = [
       ...(process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || "http://localhost:3000")
         .split(",")

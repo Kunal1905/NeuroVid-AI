@@ -45,6 +45,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
 
     const queue = generationQueue;
     if (!queue || !redisConnection) {
+      console.error("Queue unavailable: missing REDIS_URL or queue instance");
       return res.status(503).json({
         error: "Queue unavailable",
         details: "REDIS_URL is not set. Configure Redis to enable video generation.",
@@ -67,20 +68,24 @@ export const submitGeneration = async (req: Request, res: Response) => {
     }
 
     if (!redisReady) {
+      console.error("Queue unavailable: Redis not reachable");
       return res.status(503).json({
         error: "Queue unavailable",
         details: "Redis is not reachable. Verify REDIS_URL and network access.",
       });
     }
 
-    // Free trial limit: 3 videos per user
+    // Free trial limit (configurable via env)
+    const limitEnv = Number(process.env.GENERATION_FREE_LIMIT);
+    const limit = Number.isFinite(limitEnv) && limitEnv > 0 ? limitEnv : 3;
+    const disableLimit = process.env.DISABLE_GENERATION_LIMIT === "true";
+
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)` })
       .from(generations)
       .where(eq(generations.userId, authUserId));
     const used = Number(count || 0);
-    const limit = 3;
-    if (used >= limit) {
+    if (!disableLimit && used >= limit) {
       return res.status(429).json({
         error: "Free trial limit reached",
         limit,
@@ -107,6 +112,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
     const { topic, details, category, language, duration } = req.body;
 
     if (!topic || !details) {
+      console.error("Missing required fields", { topic, details });
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -136,7 +142,8 @@ export const submitGeneration = async (req: Request, res: Response) => {
     res.status(201).json({
       success: true,
       sessionId,
-      limit,
+      limit: disableLimit ? null : limit,
+      limitDisabled: disableLimit,
       used: used + 1,
       remaining: Math.max(0, limit - (used + 1)),
     });
@@ -157,7 +164,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
         ]);
         console.log("✅ Job enqueued", (job as any)?.id, { sessionId });
       } catch (queueError) {
-        console.error("Queue operation failed:", queueError);
+        console.error("Queue operation failed:", queueError, { sessionId });
       }
 
       try {
@@ -217,6 +224,7 @@ export const getGenerationBySession = async (req: Request, res: Response) => {
 export const getGenerationStatus = async (req: Request, res: Response) => {
   try {
     const { sessionId } = req.params;
+    console.log("🔎 Status check", { sessionId });
 
     const [gen] = await db
       .select()
@@ -224,9 +232,16 @@ export const getGenerationStatus = async (req: Request, res: Response) => {
       .where(eq(generations.sessionId, sessionId));
 
     if (!gen) {
+      console.log("⚠️ Status check: generation not found", { sessionId });
       return res.status(404).json({ status: "not_found", progress: 0 });
     }
 
+    console.log("✅ Status check result", {
+      sessionId,
+      status: gen.status,
+      progress: gen.progress,
+      updatedAt: gen.updatedAt,
+    });
     res.json({
       status: gen.status,
       progress: gen.progress,

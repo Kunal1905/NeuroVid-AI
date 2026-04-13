@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Video,
@@ -63,7 +63,8 @@ export default function Generate() {
   const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
+  const [remainingTime, setRemainingTime] = useState(0);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Brain dominance (unchanged)
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
@@ -120,15 +121,34 @@ export default function Generate() {
     setStatus("queued");
     setProgress(10);
     setErrorMsg(null);
-    setElapsedTime(0);
+    const estimatedSeconds = Math.max(0, Math.round(duration[0] * 15));
+    setRemainingTime(estimatedSeconds);
 
-    // Start elapsed time counter
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
+
+    // Start countdown timer
     const timerInterval = setInterval(() => {
-      setElapsedTime((prev) => prev + 1);
+      setRemainingTime((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (next === 0) {
+          clearInterval(timerInterval);
+        }
+        return next;
+      });
     }, 1000);
+    countdownIntervalRef.current = timerInterval;
 
     try {
       const token = await getToken();
+      console.log("[generate] submit payload", {
+        topic,
+        details,
+        category,
+        language,
+        duration: duration[0],
+      });
 
       const res = await fetch(apiUrl("/api/generate/submitGeneration"), {
         method: "POST",
@@ -144,9 +164,11 @@ export default function Generate() {
           duration: duration[0],
         }),
       });
+      console.log("[generate] submit response status", res.status);
 
       if (res.status === 429) {
         const err = await res.json();
+        console.log("[generate] submit 429 response", err);
         setShowPlanLimit(true);
         clearInterval(timerInterval);
         setIsGenerating(false);
@@ -155,6 +177,7 @@ export default function Generate() {
 
       if (res.status === 403) {
         const err = await res.json();
+        console.log("[generate] submit 403 response", err);
         setStatus("error");
         setErrorMsg(
           err?.error === "Brain dominance survey not completed"
@@ -167,6 +190,7 @@ export default function Generate() {
       }
 
       const data = await res.json();
+      console.log("[generate] submit success response", data);
 
       if (data.sessionId) {
         setSessionId(data.sessionId);
@@ -175,6 +199,7 @@ export default function Generate() {
         }
         pollStatus(data.sessionId);
       } else {
+        console.log("[generate] submit missing sessionId", data);
         setStatus("error");
       }
     } catch (error) {
@@ -198,6 +223,9 @@ export default function Generate() {
       // Timeout after 5 minutes
       if (pollCount > maxPolls) {
         clearInterval(interval);
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+        }
         setStatus("error");
         setErrorMsg("Generation timed out after 5 minutes. Please try again.");
         return;
@@ -212,6 +240,7 @@ export default function Generate() {
         if (res.ok) {
           consecutiveFailures = 0; // Reset failure counter
           const data = await res.json();
+          console.log("[generate] status response", data);
           const progressValue = Number(data.progress || 0);
           setProgress(progressValue);
 
@@ -220,8 +249,14 @@ export default function Generate() {
             setStatus("completed");
             setProgress(100);
             clearInterval(interval);
+            if (countdownIntervalRef.current) {
+              clearInterval(countdownIntervalRef.current);
+            }
           } else if (data.status === "FAILED") {
             clearInterval(interval);
+            if (countdownIntervalRef.current) {
+              clearInterval(countdownIntervalRef.current);
+            }
             setStatus("error");
             setErrorMsg("Video generation failed. Please try again.");
           } else if (data.status && data.status !== "COMPLETED") {
@@ -229,8 +264,12 @@ export default function Generate() {
           }
         } else {
           consecutiveFailures++;
+          console.log("[generate] status non-200", res.status);
           if (consecutiveFailures >= maxConsecutiveFailures) {
             clearInterval(interval);
+            if (countdownIntervalRef.current) {
+              clearInterval(countdownIntervalRef.current);
+            }
             setStatus("error");
             setErrorMsg("Failed to check generation status. Please try again.");
           }
@@ -240,6 +279,9 @@ export default function Generate() {
         consecutiveFailures++;
         if (consecutiveFailures >= maxConsecutiveFailures) {
           clearInterval(interval);
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+          }
           setStatus("error");
           setErrorMsg("Network error. Please check your connection and try again.");
         }
@@ -262,7 +304,10 @@ export default function Generate() {
     setVideoUrl(null);
     setStatus("idle");
     setErrorMsg(null);
-    setElapsedTime(0);
+    setRemainingTime(0);
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
   };
 
   return (
@@ -741,11 +786,12 @@ export default function Generate() {
                   Processing your content and generating personalized video...
                 </p>
 
-                {/* Elapsed Time Display */}
+                {/* Countdown Display */}
                 <div className="mb-4 flex items-center justify-center gap-2 text-sm text-violet-400">
                   <Clock className="w-4 h-4" />
                   <span className="font-mono">
-                    {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+                    {Math.floor(remainingTime / 60)}:
+                    {(remainingTime % 60).toString().padStart(2, "0")}
                   </span>
                 </div>
 
