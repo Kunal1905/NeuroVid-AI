@@ -4,27 +4,62 @@ const API_KEY = process.env.GOOGLE_API_KEY || process.env.GOOGLE_API || "";
 
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
+const PRIMARY_MODEL = process.env.LLM_MODEL || "gemini-2.5-flash";
+const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "gemini-1.5-flash";
+const MAX_RETRIES = Number(process.env.LLM_MAX_RETRIES || 3);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetry = (err: any) => {
+  const status = err?.status;
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  const msg = String(err?.message || "").toLowerCase();
+  return msg.includes("high demand") || msg.includes("timeout");
+};
+
 export default async function llmService(prompt: string): Promise<string> {
   if (!genAI) {
     throw new Error("LLM unavailable: missing GOOGLE_API_KEY");
   }
   try {
-    console.log('[LLM] Sending request to Gemini API...');
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    if (!text || !text.trim()) {
-      throw new Error("LLM returned empty response");
+    const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
+
+    for (const modelName of models) {
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+          console.log(
+            `[LLM] Sending request to Gemini API... model=${modelName} attempt=${attempt + 1}/${MAX_RETRIES}`,
+          );
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
+          if (!text || !text.trim()) {
+            throw new Error("LLM returned empty response");
+          }
+          console.log(
+            `[LLM] Response received: ${text.length} characters (model=${modelName})`,
+          );
+          return text.trim();
+        } catch (err: any) {
+          console.error("[LLM] Gemini API Error:", {
+            message: err?.message,
+            status: err?.status,
+            code: err?.code,
+            details: err?.errorDetails || "No details",
+            model: modelName,
+            attempt: attempt + 1,
+          });
+          if (!shouldRetry(err) || attempt === MAX_RETRIES - 1) {
+            break;
+          }
+          const backoffMs = Math.min(8000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 250);
+          await sleep(backoffMs);
+        }
+      }
     }
-    console.log(`[LLM] Response received: ${text.length} characters`);
-    return text.trim();
+
+    throw new Error("LLM error: all retries exhausted");
   } catch (err: any) {
-    console.error('[LLM] Gemini API Error:', {
-      message: err?.message,
-      status: err?.status,
-      code: err?.code,
-      details: err?.errorDetails || 'No details'
-    });
     throw new Error(`LLM error: ${err?.message || "unknown error"}`);
   }
 }

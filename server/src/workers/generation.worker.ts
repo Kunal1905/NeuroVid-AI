@@ -92,8 +92,12 @@ class GenerationWorker {
       
       // Fetch generation data from database
       console.time(`job:${job.id}:getGeneration`);
-      const generation = await this.getGeneration(sessionId);
-      console.timeEnd(`job:${job.id}:getGeneration`);
+      let generation: GenerationRecord | null = null;
+      try {
+        generation = await this.getGeneration(sessionId);
+      } finally {
+        console.timeEnd(`job:${job.id}:getGeneration`);
+      }
       if (!generation) {
         throw new Error(`Generation not found for session: ${sessionId}`);
       }
@@ -104,35 +108,50 @@ class GenerationWorker {
 
       // Stage 1: Generate Script
       console.time(`job:${job.id}:generateScript`);
-      await this.updateStatus(sessionId, "GENERATING_SCRIPT", 20);
-      console.log(`📝 Starting script generation...`);
-      const script = await this.generateScript(generation);
-      console.timeEnd(`job:${job.id}:generateScript`);
+      let script: any;
+      try {
+        await this.updateStatus(sessionId, "GENERATING_SCRIPT", 20);
+        console.log(`📝 Starting script generation...`);
+        script = await this.generateScript(generation);
+      } finally {
+        console.timeEnd(`job:${job.id}:generateScript`);
+      }
       console.log(`✅ Script generated successfully for session: ${sessionId}`);
 
       // Stage 2: Generate Quiz
       console.time(`job:${job.id}:generateQuiz`);
-      await this.updateStatus(sessionId, "GENERATING_QUIZ", 40);
-      console.log(`❓ Starting quiz generation...`);
-      const quiz = await this.generateQuiz(generation, script);
-      console.timeEnd(`job:${job.id}:generateQuiz`);
+      let quiz: any;
+      try {
+        await this.updateStatus(sessionId, "GENERATING_QUIZ", 40);
+        console.log(`❓ Starting quiz generation...`);
+        quiz = await this.generateQuiz(generation, script);
+      } finally {
+        console.timeEnd(`job:${job.id}:generateQuiz`);
+      }
       console.log(`✅ Quiz generated successfully for session: ${sessionId}`);
 
       // Stage 3: Generate Video
       console.time(`job:${job.id}:generateVideo`);
-      await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
-      console.log(`🎬 Starting video generation...`);
-      const videoUrl = await this.generateVideo(script);
-      console.timeEnd(`job:${job.id}:generateVideo`);
+      let videoUrl: string;
+      try {
+        await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
+        console.log(`🎬 Starting video generation...`);
+        videoUrl = await this.generateVideo(script);
+      } finally {
+        console.timeEnd(`job:${job.id}:generateVideo`);
+      }
       console.log(`✅ Video generated successfully for session: ${sessionId}`);
 
       // Stage 4: Complete Generation
       console.time(`job:${job.id}:saveResults`);
-      await this.updateStatus(sessionId, "SAVING_RESULTS", 90);
-      console.log(`💾 Saving results to database...`);
-      await this.saveResults(sessionId, script, quiz, videoUrl);
-      await this.updateStatus(sessionId, "COMPLETED", 100);
-      console.timeEnd(`job:${job.id}:saveResults`);
+      try {
+        await this.updateStatus(sessionId, "SAVING_RESULTS", 90);
+        console.log(`💾 Saving results to database...`);
+        await this.saveResults(sessionId, script, quiz, videoUrl);
+        await this.updateStatus(sessionId, "COMPLETED", 100);
+      } finally {
+        console.timeEnd(`job:${job.id}:saveResults`);
+      }
 
       console.log(`🎉 Generation completed successfully for session: ${sessionId}`);
       console.timeEnd(`job:${job.id}:total`);
