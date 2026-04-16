@@ -246,7 +246,7 @@ export default function Chat() {
           {activeConversation ? (
             <>
               {/* Header */}
-              <div className="px-4 py-4 border-b border-white/10 flex items-center gap-3 sticky top-24 bg-[#0B0B1A]/95 backdrop-blur z-30">
+              <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3 sticky top-24 bg-[#0B0B1A]/95 backdrop-blur z-30">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -255,13 +255,11 @@ export default function Chat() {
                 >
                   <ChevronRight className="w-5 h-5" />
                 </Button>
-                <h2 className="font-semibold">
-                  {activeConversation.topic}
-                </h2>
+                <div className="text-sm text-slate-300">AI Learning Assistant</div>
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4">
+              <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
                 <AnimatePresence>
                   {activeConversation.messages.map((m, i) => (
                     <motion.div
@@ -282,7 +280,7 @@ export default function Chat() {
                       )}
                       <div
                         className={cn(
-                          "max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl break-words",
+                          "max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl break-words shadow-[0_10px_30px_-20px_rgba(0,0,0,0.8)]",
                           m.role === "user"
                             ? "bg-violet-500/20 text-white"
                             : "bg-white/5 text-slate-100 border border-white/10"
@@ -292,7 +290,7 @@ export default function Chat() {
                           <ReactMarkdown
                             components={{
                               p: ({ children }) => (
-                                <p className="text-slate-100 leading-7 whitespace-pre-wrap">
+                                <p className="text-slate-100 leading-7 whitespace-pre-wrap m-0">
                                   {children}
                                 </p>
                               ),
