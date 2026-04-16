@@ -282,14 +282,45 @@ export default function Chat() {
                       )}
                       <div
                         className={cn(
-                          "max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl",
+                          "max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl break-words",
                           m.role === "user"
-                            ? "bg-violet-500/20"
-                            : "bg-white/5"
+                            ? "bg-violet-500/20 text-white"
+                            : "bg-white/5 text-slate-100 border border-white/10"
                         )}
                       >
                         {m.role === "assistant" ? (
-                          <ReactMarkdown>
+                          <ReactMarkdown
+                            components={{
+                              p: ({ children }) => (
+                                <p className="text-slate-100 leading-7 whitespace-pre-wrap">
+                                  {children}
+                                </p>
+                              ),
+                              strong: ({ children }) => (
+                                <strong className="font-semibold text-white">
+                                  {children}
+                                </strong>
+                              ),
+                              ul: ({ children }) => (
+                                <ul className="list-disc pl-5 space-y-2 text-slate-100">
+                                  {children}
+                                </ul>
+                              ),
+                              ol: ({ children }) => (
+                                <ol className="list-decimal pl-5 space-y-2 text-slate-100">
+                                  {children}
+                                </ol>
+                              ),
+                              li: ({ children }) => (
+                                <li className="leading-7">{children}</li>
+                              ),
+                              code: ({ children }) => (
+                                <code className="rounded bg-black/30 px-1.5 py-0.5 text-sm text-violet-200">
+                                  {children}
+                                </code>
+                              ),
+                            }}
+                          >
                             {m.content}
                           </ReactMarkdown>
                         ) : (
