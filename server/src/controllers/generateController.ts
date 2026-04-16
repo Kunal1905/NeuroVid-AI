@@ -111,10 +111,11 @@ export const submitGeneration = async (req: Request, res: Response) => {
 
     const { topic, details, category, language, duration } = req.body;
 
-    if (!topic || !details) {
+    if (!topic || !topic.trim()) {
       console.error("Missing required fields", { topic, details });
       return res.status(400).json({ error: "Missing required fields" });
     }
+    const safeDetails = typeof details === "string" ? details : "";
 
     // Create new generation with CREATED status
     console.time("submitGeneration:insert");
@@ -123,7 +124,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
       .values({
         userId: authUserId,
         topic,
-        details,
+        details: safeDetails,
         category,
         language,
         duration,
