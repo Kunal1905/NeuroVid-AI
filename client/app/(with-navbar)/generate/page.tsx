@@ -115,6 +115,9 @@ export default function Generate() {
   const handleSubmit = async () => {
     if (!topic.trim()) return;
 
+    const normalizedTopic = topic.trim();
+    const normalizedDetails = details.trim() || `Explain ${topic.trim()} in a clear, beginner-friendly way.`;
+
     setShowModal(true);
     setIsGenerating(true);
     setStatus("queued");
@@ -123,8 +126,8 @@ export default function Generate() {
     try {
       const token = await getToken();
       console.log("[generate] submit payload", {
-        topic,
-        details,
+        topic: normalizedTopic,
+        details: normalizedDetails,
         category,
         language,
         duration: duration[0],
@@ -137,8 +140,8 @@ export default function Generate() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          topic,
-          details,
+          topic: normalizedTopic,
+          details: normalizedDetails,
           category,
           language,
           duration: duration[0],
@@ -167,6 +170,15 @@ export default function Generate() {
         return;
       }
 
+      if (res.status === 400) {
+        const err = await res.json();
+        console.log("[generate] submit 400 response", err);
+        setStatus("error");
+        setErrorMsg(err?.error || "Please fill in the required fields and try again.");
+        setIsGenerating(false);
+        return;
+      }
+
       const data = await res.json();
       console.log("[generate] submit success response", data);
 
@@ -179,10 +191,12 @@ export default function Generate() {
       } else {
         console.log("[generate] submit missing sessionId", data);
         setStatus("error");
+        setErrorMsg(data?.error || "Failed to start generation. Please try again.");
       }
     } catch (error) {
       console.error("Error submitting generation:", error);
       setStatus("error");
+      setErrorMsg("Could not submit generation request. Please try again.");
     } finally {
       setIsGenerating(false);
     }
