@@ -12,6 +12,7 @@ const MAX_RETRIES = Number(process.env.LLM_MAX_RETRIES || 3);
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 30000);
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const LLM_PROVIDER = (process.env.LLM_PROVIDER || "groq").toLowerCase();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -152,6 +153,15 @@ export default async function llmService(
   const ctxLabel = `[LLM${context.stage ? `:${context.stage}` : ""}${
     context.sessionId ? `:${context.sessionId}` : ""
   }]`;
+  if (LLM_PROVIDER === "groq") {
+    if (GROQ_API_KEY) {
+      console.log(`${ctxLabel} Using Groq as primary provider`);
+      return await groqChatCompletion(prompt, context);
+    }
+    console.log(
+      `${ctxLabel} LLM_PROVIDER=groq but GROQ_API_KEY is missing, falling back to Gemini`,
+    );
+  }
   if (!genAI) {
     if (GROQ_API_KEY) {
       console.log(
