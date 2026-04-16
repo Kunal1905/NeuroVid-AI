@@ -23,7 +23,15 @@ type GenerationData = {
   duration?: number | null;
   status: string;
   progress: number;
-  script?: { title?: string; scenes?: any[] } | null;
+  script?: {
+    title?: string;
+    bullets?: string[];
+    scenes?: Array<{
+      sceneNumber?: number;
+      voiceover?: string;
+      visual?: string;
+    }>;
+  } | null;
   quiz?: { questions?: QuizQuestion[] } | null;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
@@ -41,6 +49,23 @@ function VideoResultContent() {
   const [answers, setAnswers] = useState<Record<number, number | null>>({});
   const [submitted, setSubmitted] = useState<Record<number, boolean>>({});
   const [currentQuestion, setCurrentQuestion] = useState(0);
+
+  const questions = data?.quiz?.questions || [];
+  const scriptBullets = data?.script?.bullets || [];
+  const scriptScenes = data?.script?.scenes || [];
+  const allQuestionsAnswered = questions.length > 0 && questions.every((_, idx) => submitted[idx]);
+  const score = questions.reduce((total, q, idx) => {
+    return total + (submitted[idx] && answers[idx] === q.correctAnswer ? 1 : 0);
+  }, 0);
+  const wrongAnswers = questions
+    .map((q, idx) => ({
+      ...q,
+      index: idx,
+      selectedAnswer:
+        answers[idx] != null ? q.options[answers[idx] as number] : "No answer selected",
+      isWrong: submitted[idx] && answers[idx] !== q.correctAnswer,
+    }))
+    .filter((q) => q.isWrong);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -74,8 +99,6 @@ function VideoResultContent() {
     const url = data?.videoUrl || "";
     return url.startsWith("https://cdn.local/");
   }, [data?.videoUrl]);
-
-  const questions = data?.quiz?.questions || [];
 
   const handleSelect = (idx: number, opt: number) => {
     setAnswers((prev) => ({ ...prev, [idx]: opt }));
@@ -176,21 +199,38 @@ function VideoResultContent() {
             <h2 className="text-xl font-semibold text-white">
               {data.script?.title || "Script"}
             </h2>
-            <div className="space-y-4">
-              {(data.script?.scenes || []).map((scene: any, idx: number) => (
-                <div key={idx} className="p-4 rounded-xl bg-black/30 border border-white/10">
-                  <div className="text-sm text-violet-300">
-                    Scene {scene.sceneNumber ?? idx + 1}
+            {scriptBullets.length > 0 ? (
+              <div className="space-y-3">
+                {scriptBullets.map((bullet, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl bg-black/30 border border-white/10"
+                  >
+                    <div className="text-sm text-violet-300">Point {idx + 1}</div>
+                    <div className="text-white mt-1">{bullet}</div>
                   </div>
-                  <div className="text-white mt-1">{scene.voiceover}</div>
-                  {scene.visual && (
-                    <div className="text-sm text-gray-400 mt-2">
-                      Visual: {scene.visual}
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {scriptScenes.map((scene, idx: number) => (
+                  <div key={idx} className="p-4 rounded-xl bg-black/30 border border-white/10">
+                    <div className="text-sm text-violet-300">
+                      Scene {scene.sceneNumber ?? idx + 1}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    <div className="text-white mt-1">{scene.voiceover}</div>
+                    {scene.visual && (
+                      <div className="text-sm text-gray-400 mt-2">
+                        Visual: {scene.visual}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {scriptScenes.length === 0 && (
+                  <div className="text-gray-400">No script generated yet.</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -269,6 +309,44 @@ function VideoResultContent() {
                   </div>
                 );
               })()
+            )}
+            {allQuestionsAnswered && (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 space-y-4">
+                <div>
+                  <div className="text-sm text-emerald-300">Quiz Complete</div>
+                  <div className="text-2xl font-semibold text-white">
+                    Overall Score: {score}/{questions.length}
+                  </div>
+                </div>
+                {wrongAnswers.length > 0 ? (
+                  <div className="space-y-3">
+                    {wrongAnswers.map((item) => (
+                      <div
+                        key={item.index}
+                        className="rounded-xl border border-white/10 bg-black/20 p-4"
+                      >
+                        <div className="text-white font-medium">
+                          Question {item.index + 1}: {item.question}
+                        </div>
+                        <div className="mt-2 text-sm text-red-300">
+                          Your answer: {item.selectedAnswer}
+                        </div>
+                        <div className="mt-1 text-sm text-green-300">
+                          Correct answer: {item.options[item.correctAnswer]}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-300">
+                          {item.explanation ||
+                            "This answer was incorrect. Review the script section for the correct concept."}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-emerald-200">
+                    You got all 5 questions correct.
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
