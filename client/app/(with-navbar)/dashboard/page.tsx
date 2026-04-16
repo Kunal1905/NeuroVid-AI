@@ -46,6 +46,7 @@ export default function Dashboard() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasTakenSurvey, setHasTakenSurvey] = useState(false);
+  const [brainDominance, setBrainDominance] = useState<string | null>(null);
 
   // Sync user to backend on mount if user exists
   useEffect(() => {
@@ -147,6 +148,7 @@ export default function Dashboard() {
               const brainData = await brainRes.json();
               if (brainData && brainData.dominantQuadrant) {
                 setHasTakenSurvey(true);
+                setBrainDominance(brainData.dominantQuadrant);
               }
             }
           } catch (e) {
@@ -177,7 +179,7 @@ export default function Dashboard() {
             <p className="text-slate-400">Your personalized learning dashboard</p>
           </div>
 
-          {!hasTakenSurvey && (
+          {!hasTakenSurvey ? (
             <div className="flex gap-3">
               <Link href="/survey">
                 <Button className="bg-gradient-to-r from-violet-600 to-blue-600">
@@ -185,6 +187,15 @@ export default function Dashboard() {
                   Take Survey
                 </Button>
               </Link>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3">
+              <div className="text-xs uppercase tracking-wide text-blue-200/80">
+                Brain Dominance
+              </div>
+              <div className="text-white font-semibold capitalize">
+                {brainDominance} Brain
+              </div>
             </div>
           )}
           <div className="flex gap-3">
