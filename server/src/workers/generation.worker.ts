@@ -110,7 +110,7 @@ class GenerationWorker {
       console.time(`job:${job.id}:generateScript`);
       let script: any;
       try {
-        await this.updateStatus(sessionId, "GENERATING_SCRIPT", 20);
+      await this.updateStatus(sessionId, "GENERATING_SCRIPT", 20);
         console.log(`📝 Starting script generation...`);
         script = await this.generateScript(generation);
       } finally {
@@ -160,7 +160,8 @@ class GenerationWorker {
       // Stage 4: Complete Generation
       console.time(`job:${job.id}:saveResults`);
       try {
-        await this.updateStatus(sessionId, "SAVING_RESULTS", 90);
+        // Keep a valid enum status here; the DB enum does not include SAVING_RESULTS.
+        await this.updateStatus(sessionId, "GENERATING_VIDEO", 90);
         console.log(`💾 Saving results to database...`);
         await this.saveResults(sessionId, script, quiz, videoUrl);
         await this.updateStatus(sessionId, "COMPLETED", 100);
