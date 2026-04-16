@@ -167,8 +167,8 @@ export default function Chat() {
      Render
   ----------------------------------- */
   return (
-    <div className="h-screen bg-[#0B0B1A] text-white relative overflow-hidden">
-      <div className="flex h-full">
+    <div className="min-h-screen bg-[#0B0B1A] text-white relative overflow-hidden pt-24">
+      <div className="flex min-h-[calc(100vh-6rem)]">
         {/* ------------------------------
             MOBILE BACKDROP
         ------------------------------ */}
@@ -184,7 +184,7 @@ export default function Chat() {
         ------------------------------ */}
         <div
           className={cn(
-            "fixed top-16 z-50 h-[calc(100vh-4rem)] w-80 flex flex-col bg-[#0B0B1A] border-r border-white/10 transition-transform duration-300 shadow-[20px_0_60px_-20px_rgba(0,0,0,0.8)]",
+            "fixed left-0 top-24 z-40 h-[calc(100vh-6rem)] w-72 md:w-80 flex flex-col bg-[#0B0B1A] border-r border-white/10 transition-transform duration-300 shadow-[20px_0_60px_-20px_rgba(0,0,0,0.8)]",
             sidebarOpen ? "translate-x-0" : "-translate-x-full",
             "lg:translate-x-0"
           )}
@@ -242,11 +242,11 @@ export default function Chat() {
         {/* ------------------------------
             MAIN CHAT
         ------------------------------ */}
-        <div className="flex-1 flex flex-col pt-16 lg:pt-0">
+        <div className="flex-1 flex flex-col min-w-0 lg:ml-80">
           {activeConversation ? (
             <>
               {/* Header */}
-              <div className="p-4 border-b border-white/10 flex items-center gap-3">
+              <div className="px-4 py-4 border-b border-white/10 flex items-center gap-3 sticky top-24 bg-[#0B0B1A]/95 backdrop-blur z-30">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -261,7 +261,7 @@ export default function Chat() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4">
                 <AnimatePresence>
                   {activeConversation.messages.map((m, i) => (
                     <motion.div
@@ -282,7 +282,7 @@ export default function Chat() {
                       )}
                       <div
                         className={cn(
-                          "max-w-[75%] p-4 rounded-2xl",
+                          "max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl",
                           m.role === "user"
                             ? "bg-violet-500/20"
                             : "bg-white/5"
@@ -322,13 +322,13 @@ export default function Chat() {
               </div>
 
               {/* Input */}
-              <div className="p-4 border-t border-white/10 flex gap-3">
+              <div className="p-4 border-t border-white/10 flex gap-3 sticky bottom-0 bg-[#0B0B1A]/95 backdrop-blur">
                 <Textarea
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask something..."
-                  className="bg-white/5 border-white/10 text-white resize-none"
+                  className="min-h-[56px] max-h-40 bg-white/5 border-white/10 text-white resize-none"
                 />
                 <Button
                   onClick={sendMessage}
@@ -340,7 +340,7 @@ export default function Chat() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12 lg:ml-0">
               <Brain className="w-16 h-16 text-violet-400 mb-4" />
               <h2 className="text-2xl font-semibold mb-2">
                 AI Learning Assistant
