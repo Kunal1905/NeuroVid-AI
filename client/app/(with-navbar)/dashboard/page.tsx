@@ -146,9 +146,11 @@ export default function Dashboard() {
             });
             if (brainRes.ok) {
               const brainData = await brainRes.json();
-              if (brainData && brainData.dominantQuadrant) {
+              const dominantQuadrant =
+                brainData?.data?.dominantQuadrant || brainData?.dominantQuadrant;
+              if (brainData?.completed && dominantQuadrant) {
                 setHasTakenSurvey(true);
-                setBrainDominance(brainData.dominantQuadrant);
+                setBrainDominance(dominantQuadrant);
               }
             }
           } catch (e) {
