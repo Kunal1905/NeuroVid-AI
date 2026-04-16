@@ -44,6 +44,19 @@ const shouldRetry = (err: any) => {
   return msg.includes("high demand") || msg.includes("timeout");
 };
 
+const isQuotaExceeded = (err: any) => {
+  const msg = String(err?.message || "").toLowerCase();
+  const details = err?.errorDetails || err?.details || err?.error?.details;
+  if (msg.includes("quota exceeded") || msg.includes("too many requests")) {
+    return true;
+  }
+  if (!Array.isArray(details)) return false;
+  return details.some(
+    (d: { ["@type"]?: string }) =>
+      d?.["@type"] === "type.googleapis.com/google.rpc.QuotaFailure",
+  );
+};
+
 const isGoogleApiKeyInvalid = (err: any) => {
   const msg = String(err?.message || "").toLowerCase();
   const details = err?.errorDetails || err?.details || err?.error?.details;
@@ -153,6 +166,7 @@ export default async function llmService(
   try {
     const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
     let sawInvalidGoogleKey = false;
+    let sawQuotaExceeded = false;
 
     for (const modelName of models) {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -190,6 +204,13 @@ export default async function llmService(
             );
             break;
           }
+          if (isQuotaExceeded(err) && GROQ_API_KEY) {
+            sawQuotaExceeded = true;
+            console.log(
+              `${ctxLabel} Gemini quota exceeded and Groq is configured, switching to Groq immediately`,
+            );
+            break;
+          }
           if (!shouldRetry(err) || attempt === MAX_RETRIES - 1) {
             break;
           }
@@ -204,7 +225,7 @@ export default async function llmService(
           await sleep(backoffMs);
         }
       }
-      if (sawInvalidGoogleKey) {
+      if (sawInvalidGoogleKey || sawQuotaExceeded) {
         break;
       }
     }
@@ -219,6 +240,11 @@ export default async function llmService(
     if (sawInvalidGoogleKey) {
       throw new Error(
         "Gemini API key is invalid or expired, and GROQ_API_KEY is not configured",
+      );
+    }
+    if (sawQuotaExceeded) {
+      throw new Error(
+        "Gemini quota exceeded and GROQ_API_KEY is not configured",
       );
     }
 
