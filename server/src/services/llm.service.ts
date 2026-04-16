@@ -9,16 +9,51 @@ const PRIMARY_MODEL = process.env.LLM_MODEL || "gemini-2.5-flash";
 // Use a known v1beta-supported model as fallback
 const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "gemini-2.0-flash";
 const MAX_RETRIES = Number(process.env.LLM_MAX_RETRIES || 3);
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 30000);
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+};
 
 const shouldRetry = (err: any) => {
   const status = err?.status;
   if ([429, 500, 502, 503, 504].includes(status)) return true;
   const msg = String(err?.message || "").toLowerCase();
   return msg.includes("high demand") || msg.includes("timeout");
+};
+
+const isGoogleApiKeyInvalid = (err: any) => {
+  const msg = String(err?.message || "").toLowerCase();
+  const details = err?.errorDetails || err?.details || err?.error?.details;
+  if (msg.includes("api key expired") || msg.includes("api_key_invalid")) {
+    return true;
+  }
+  if (!Array.isArray(details)) return false;
+  return details.some(
+    (d: { reason?: string }) => d?.reason === "API_KEY_INVALID",
+  );
 };
 
 const extractRetryDelayMs = (err: any): number | null => {
@@ -101,14 +136,23 @@ export default async function llmService(
   prompt: string,
   context: LlmContext = {},
 ): Promise<string> {
+  const ctxLabel = `[LLM${context.stage ? `:${context.stage}` : ""}${
+    context.sessionId ? `:${context.sessionId}` : ""
+  }]`;
   if (!genAI) {
-    throw new Error("LLM unavailable: missing GOOGLE_API_KEY");
+    if (GROQ_API_KEY) {
+      console.log(
+        `${ctxLabel} Google key missing, using Groq fallback`,
+      );
+      return await groqChatCompletion(prompt, context);
+    }
+    throw new Error(
+      "LLM unavailable: missing GOOGLE_API_KEY and missing GROQ_API_KEY",
+    );
   }
   try {
     const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
-    const ctxLabel = `[LLM${context.stage ? `:${context.stage}` : ""}${
-      context.sessionId ? `:${context.sessionId}` : ""
-    }]`;
+    let sawInvalidGoogleKey = false;
 
     for (const modelName of models) {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -117,7 +161,11 @@ export default async function llmService(
             `${ctxLabel} Sending request to Gemini API... model=${modelName} attempt=${attempt + 1}/${MAX_RETRIES} promptLength=${prompt.length}`,
           );
           const model = genAI.getGenerativeModel({ model: modelName });
-          const result = await model.generateContent(prompt);
+          const result = await withTimeout(
+            model.generateContent(prompt),
+            LLM_TIMEOUT_MS,
+            `${ctxLabel} Gemini request (${modelName})`,
+          );
           const text = result.response.text();
           if (!text || !text.trim()) {
             throw new Error("LLM returned empty response");
@@ -135,6 +183,13 @@ export default async function llmService(
             model: modelName,
             attempt: attempt + 1,
           });
+          if (isGoogleApiKeyInvalid(err)) {
+            sawInvalidGoogleKey = true;
+            console.log(
+              `${ctxLabel} Gemini API key is invalid/expired, skipping further Gemini retries`,
+            );
+            break;
+          }
           if (!shouldRetry(err) || attempt === MAX_RETRIES - 1) {
             break;
           }
@@ -149,6 +204,9 @@ export default async function llmService(
           await sleep(backoffMs);
         }
       }
+      if (sawInvalidGoogleKey) {
+        break;
+      }
     }
 
     if (GROQ_API_KEY) {
@@ -158,7 +216,15 @@ export default async function llmService(
       return await groqChatCompletion(prompt, context);
     }
 
-    throw new Error("LLM error: all retries exhausted");
+    if (sawInvalidGoogleKey) {
+      throw new Error(
+        "Gemini API key is invalid or expired, and GROQ_API_KEY is not configured",
+      );
+    }
+
+    throw new Error(
+      "LLM error: all retries exhausted and GROQ_API_KEY is not configured",
+    );
   } catch (err: any) {
     throw new Error(`LLM error: ${err?.message || "unknown error"}`);
   }
