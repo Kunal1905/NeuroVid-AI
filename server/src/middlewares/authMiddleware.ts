@@ -2,9 +2,15 @@ import { getAuth } from "@clerk/express";
 import { verifyToken } from "@clerk/backend";
 import { Request, Response, NextFunction } from "express";
 
-console.log("----------------------------------------");
-console.log("   AUTH MIDDLEWARE LOADED (DEBUG MODE)   ");
-console.log("----------------------------------------");
+const isProduction = process.env.NODE_ENV === "production";
+
+if (!isProduction) {
+  console.log("----------------------------------------");
+  console.log("   AUTH MIDDLEWARE LOADED (DEBUG MODE)   ");
+  console.log("----------------------------------------");
+} else {
+  console.log("Auth middleware loaded — production mode, test-header bypass DISABLED");
+}
 
 // Strict auth (real users only)
 export const requireAuth = (
@@ -22,14 +28,21 @@ export const requireAuth = (
   next();
 };
 
-// Token or test header auth (no getAuth dependency)
+// Token or test header auth (no getAuth dependency).
+// CRITICAL: the x-test-user-id bypass is ONLY honored outside production.
+// Before this fix, any caller could send this header and impersonate any
+// user ID, bypassing Clerk entirely — this was flagged as a launch-blocking
+// vulnerability and must stay gated like this permanently, not just until
+// the next refactor.
 export const requireAuthTokenOrTest_DEBUG = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const testUserId = req.headers["x-test-user-id"] as string | undefined;
+    const testUserId = !isProduction
+      ? (req.headers["x-test-user-id"] as string | undefined)
+      : undefined;
 
     // Check Clerk auth first (populated by clerkMiddleware)
     let auth;
@@ -39,12 +52,14 @@ export const requireAuthTokenOrTest_DEBUG = async (
       console.error("getAuth failed:", e);
     }
 
-    console.log("Auth Debug:", {
-      headers: req.headers.authorization ? "Present" : "Missing",
-      testUserId,
-      authUserId: auth?.userId,
-      clerkKeys: !!process.env.CLERK_SECRET_KEY,
-    });
+    if (!isProduction) {
+      console.log("Auth Debug:", {
+        headers: req.headers.authorization ? "Present" : "Missing",
+        testUserId,
+        authUserId: auth?.userId,
+        clerkKeys: !!process.env.CLERK_SECRET_KEY,
+      });
+    }
 
     if (testUserId) {
       (req as any).auth = { userId: testUserId };
@@ -60,15 +75,10 @@ export const requireAuthTokenOrTest_DEBUG = async (
     const secret = process.env.CLERK_SECRET_KEY;
     const authHeader = req.headers.authorization || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    
-    if (token) {
-      console.log("Attempting manual token verification...");
-    }
 
     if (token && secret) {
       try {
         const verified = await verifyToken(token, { secretKey: secret });
-        console.log("Manual verification success:", verified.sub);
         (req as any).auth = { userId: verified.sub };
         return next();
       } catch (err) {
@@ -77,7 +87,6 @@ export const requireAuthTokenOrTest_DEBUG = async (
       }
     }
 
-    console.log("Auth failed: No valid auth method found");
     return res.status(401).json({ error: "Authentication required" });
   } catch (error) {
     console.error("Auth Middleware Crash:", error);
@@ -87,17 +96,19 @@ export const requireAuthTokenOrTest_DEBUG = async (
 
 
 /**
- * Dev / Postman support
- * Allows fake header OR real Clerk auth
+ * Dev / Postman support ONLY. The x-test-user-id bypass is disabled
+ * entirely in production — see requireAuthTokenOrTest_DEBUG above for
+ * why this matters. Do not remove this guard.
  */
 export const requireAuthOrTest = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  const testUserId = req.headers["x-test-user-id"] as string | undefined;
+  const testUserId = !isProduction
+    ? (req.headers["x-test-user-id"] as string | undefined)
+    : undefined;
 
-  // ✅ allow fake user in dev tools
   if (testUserId) {
     (req as any).auth = { userId: testUserId };
     return next();

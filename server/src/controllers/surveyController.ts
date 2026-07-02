@@ -6,16 +6,7 @@ import { db } from '../services/db';
 // get current user's brain dominance
 export const getSurvey = async (req: Request, res: Response) => {
   try {
-    let authUser = (req as any).auth?.userId;
-
-    // DEBUG: Allow testing without Auth middleware
-    if (!authUser) {
-      const testUserId = req.headers['x-test-user-id'] as string;
-      if (testUserId) {
-          authUser = testUserId;
-          console.log(`✅ Using test user ID: ${authUser}`);
-      }
-    }
+    const authUser = (req as any).auth?.userId;
 
     if (!authUser) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -38,16 +29,7 @@ export const getSurvey = async (req: Request, res: Response) => {
 export const submitSurvey = async (req: Request, res: Response) => {
   try {
     console.log('submitSurvey called - body:', req.body);  // Debug request
-    let authUserId = (req as any).auth?.userId;
-
-    // DEBUG: Allow testing without Auth middleware
-    if (!authUserId) {
-      const testUserId = req.headers['x-test-user-id'] as string;
-      if (testUserId) {
-          authUserId = testUserId;
-          console.log(`✅ Using test user ID: ${authUserId}`);
-      }
-    }
+    const authUserId = (req as any).auth?.userId;
 
     if (!authUserId) {
       return res.status(401).json({ error: 'Authentication required' });

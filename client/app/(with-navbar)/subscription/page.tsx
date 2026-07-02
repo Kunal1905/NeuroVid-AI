@@ -170,7 +170,10 @@ const Subscription = () => {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify(response),
+            body: JSON.stringify({
+              ...response,
+              planId: plan.id
+            }),
           });
 
           if (!verifyRes.ok) {

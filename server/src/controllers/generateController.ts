@@ -4,8 +4,18 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../services/db";
 import { generations } from "../models/generate"; // ← make sure this matches your model file
 import { brainDominanceSurveys } from "../models/survey";
-import { generationQueue } from "../queues/generation.queue";
+import { generationQueue, priorityForTier } from "../queues/generation.queue";
 import { redisConnection } from "../config/redis";
+import {
+  VIDEO_TIERS,
+  type PlanId,
+} from "../config/VideoTiers";
+import {
+  hashFingerprint,
+  hasUsedFreeTrial,
+  redeemFreeTrial,
+  reserveCreditsForGeneration,
+  } from "../services/wallet.service";
 
 /* ======================== GET LATEST GENERATION ======================== */
 export const getGeneration = async (req: Request, res: Response) => {
@@ -75,23 +85,61 @@ export const submitGeneration = async (req: Request, res: Response) => {
       });
     }
 
-    // Free trial limit (configurable via env)
-    const limitEnv = Number(process.env.GENERATION_FREE_LIMIT);
-    const limit = Number.isFinite(limitEnv) && limitEnv > 0 ? limitEnv : 3;
-    const disableLimit = process.env.DISABLE_GENERATION_LIMIT === "true";
+    const { topic, details, category, language, duration } = req.body;
 
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(generations)
-      .where(eq(generations.userId, authUserId));
-    const used = Number(count || 0);
-    if (!disableLimit && used >= limit) {
-      return res.status(429).json({
-        error: "Free trial limit reached",
-        limit,
-        used,
-        remaining: 0,
+    if (!topic || !topic.trim()) {
+      console.error("Missing required fields", { topic, details });
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    const safeDetails = typeof details === "string" ? details : "";
+    const requestedSeconds = Math.max(1, Math.min(Number(duration) || 8, 120));
+
+    const fingerprint = (req.body.deviceFingerprint as string) || "";
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+    const fingerprintHash = hashFingerprint(fingerprint, ip);
+
+    const alreadyUsedFreeTrial = await hasUsedFreeTrial(fingerprintHash);
+
+    let chosenTier: PlanId;
+    let chosenSeconds = requestedSeconds;
+    let creditsToCharge = 0;
+    let isFreeTrial = false;
+
+    if (!alreadyUsedFreeTrial) {
+      // First-ever video for this device+IP — free tier, hard-capped at 10s.
+      // This is the ONLY path that bypasses the credit balance check.
+      chosenTier = "free";
+      chosenSeconds = Math.min(requestedSeconds, VIDEO_TIERS.free.totalSeconds);
+      creditsToCharge = 0;
+      isFreeTrial = true;
+    } else {
+      // Paid path. All tiers route to the same model (Hailuo-2.3-Fast) —
+      // the only thing that differs between Starter/Standard/Pro/Creator is
+      // how many seconds the purchase unlocked, not video quality. Credits
+      // and seconds are 1:1 under this pricing model, so creditsToCharge
+      // IS the seconds requested — no per-tier rate lookup needed.
+      const requestedPlan = (req.body.planId as PlanId) || "starter";
+      if (!VIDEO_TIERS[requestedPlan] || requestedPlan === "free") {
+        return res.status(400).json({ error: "Invalid planId" });
+      }
+      chosenTier = requestedPlan;
+      const tier = VIDEO_TIERS[chosenTier];
+      chosenSeconds = Math.min(requestedSeconds, tier.totalSeconds);
+      creditsToCharge = chosenSeconds; // 1 credit = 1 second, see models/user.ts
+
+      const reservation = await reserveCreditsForGeneration({
+        clerkUserId: authUserId,
+        creditsNeeded: creditsToCharge,
+        sessionId: "pending", // session not created yet; logged again after insert below
       });
+
+      if (!reservation.ok) {
+        return res.status(402).json({
+          error: "Insufficient credits",
+          reason: (reservation as { ok: false; reason: string }).reason,
+          creditsRequired: creditsToCharge,
+        });
+      }
     }
 
     // Fetch brain dominance
@@ -109,14 +157,6 @@ export const submitGeneration = async (req: Request, res: Response) => {
         .json({ error: "Brain dominance survey not completed" });
     }
 
-    const { topic, details, category, language, duration } = req.body;
-
-    if (!topic || !topic.trim()) {
-      console.error("Missing required fields", { topic, details });
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-    const safeDetails = typeof details === "string" ? details : "";
-
     // Create new generation with CREATED status
     console.time("submitGeneration:insert");
     const [newGeneration] = await db
@@ -127,26 +167,39 @@ export const submitGeneration = async (req: Request, res: Response) => {
         details: safeDetails,
         category,
         language,
-        duration,
+        duration: chosenSeconds,
         style: survey.dominantQuadrant,
         status: "CREATED",
         progress: 0,
+        routedModel: "hailuo-2.3-fast", // all tiers use the same model now; tier only governs total seconds
+        creditsCharged: creditsToCharge,
+        isFreeTrial: isFreeTrial ? 1 : 0,
       })
       .returning();
     console.timeEnd("submitGeneration:insert");
 
     // after insert
     const sessionId = newGeneration.sessionId;
-    console.log("✅ Generation created", { sessionId, userId: authUserId });
+    console.log("✅ Generation created", { sessionId, userId: authUserId, chosenTier, chosenSeconds, creditsToCharge });
+
+    if (isFreeTrial) {
+      const redemption = await redeemFreeTrial({ fingerprintHash, ip, clerkUserId: authUserId });
+      if (!redemption.ok) {
+        // Someone else won the race on this exact fingerprint between our
+        // check above and now — fail closed rather than give a second free video.
+        await db.delete(generations).where(eq(generations.sessionId, sessionId));
+        return res.status(429).json({ error: "Free trial already used", reason: redemption.reason });
+      }
+    }
 
     // respond FIRST (avoid double-send)
     res.status(201).json({
       success: true,
       sessionId,
-      limit: disableLimit ? null : limit,
-      limitDisabled: disableLimit,
-      used: used + 1,
-      remaining: Math.max(0, limit - (used + 1)),
+      isFreeTrial,
+      tier: chosenTier,
+      creditsCharged: creditsToCharge,
+      secondsGenerated: chosenSeconds,
     });
     console.timeEnd("submitGeneration:total");
 
@@ -156,14 +209,24 @@ export const submitGeneration = async (req: Request, res: Response) => {
         const job = await Promise.race([
           queue.add(
             "generation-job",
-            { sessionId },
-            { attempts: 3, backoff: { type: "exponential", delay: 8000 } },
+            {
+              sessionId,
+              clerkUserId: authUserId,
+              secondsRequested: chosenSeconds,
+              creditsCharged: creditsToCharge,
+              isFreeTrial,
+            },
+            {
+              attempts: 3,
+              backoff: { type: "exponential", delay: 8000 },
+              priority: priorityForTier(chosenTier),
+            },
           ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Queue timeout after 5s")), 5000),
           ),
         ]);
-        console.log("✅ Job enqueued", (job as any)?.id, { sessionId });
+        console.log("✅ Job enqueued", (job as any)?.id, { sessionId, priority: priorityForTier(chosenTier) });
       } catch (queueError) {
         console.error("Queue operation failed:", queueError, { sessionId });
       }

@@ -45,6 +45,9 @@ export const generations = pgTable('generations', {
 
   videoUrl: text("video_url"),
   thumbnailUrl: text("thumbnail_url"),
+  routedModel: varchar("routed_model", { length: 100 }),
+  creditsCharged: integer("credits_charged").default(0),
+  isFreeTrial: integer("is_free_trial").default(0),
 
   createdAt: timestamp('created_at', { withTimezone:true}).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone:true}).defaultNow().notNull(),

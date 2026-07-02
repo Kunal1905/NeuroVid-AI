@@ -2,6 +2,9 @@ import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { requireAuthTokenOrTest_DEBUG } from "../middlewares/authMiddleware";
+import { db } from "../services/db";
+import { users } from "../models/user";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -12,6 +15,7 @@ const plans = {
     amount: 19900,
     currency: "INR",
     description: "Starter access with essential features",
+    credits: 10,
   },
   pro: {
     id: "pro",
@@ -19,6 +23,7 @@ const plans = {
     amount: 49900,
     currency: "INR",
     description: "Advanced access for power learners",
+    credits: 50,
   },
   team: {
     id: "team",
@@ -26,6 +31,7 @@ const plans = {
     amount: 99900,
     currency: "INR",
     description: "Collaboration features for teams",
+    credits: 200,
   },
 } as const;
 
@@ -37,6 +43,7 @@ const verifySchema = z.object({
   razorpay_order_id: z.string().min(1),
   razorpay_payment_id: z.string().min(1),
   razorpay_signature: z.string().min(1),
+  planId: z.enum(["starter", "pro", "team"]).optional(),
 });
 
 router.post("/create-order", requireAuthTokenOrTest_DEBUG, async (req, res) => {
@@ -46,12 +53,22 @@ router.post("/create-order", requireAuthTokenOrTest_DEBUG, async (req, res) => {
       return res.status(400).json({ error: "Invalid request payload" });
     }
 
+    const authUser = (req as any).auth?.userId;
+    if (!authUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
     const plan = plans[parsed.data.planId];
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
+    console.log("🔍 Debug - Razorpay keys:");
+    console.log("   keyId:", keyId ? "[SET]" : "[NOT SET]");
+    console.log("   keySecret:", keySecret ? "[SET]" : "[NOT SET]");
+    console.log("   All env vars present:", Object.keys(process.env));
+
     if (!keyId || !keySecret) {
-      return res.status(500).json({ error: "Razorpay keys are not configured" });
+      return res.status(500).json({ error: "Razorpay keys are not configured", debug: { keyIdSet: !!keyId, keySecretSet: !!keySecret } });
     }
 
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
@@ -69,6 +86,7 @@ router.post("/create-order", requireAuthTokenOrTest_DEBUG, async (req, res) => {
         receipt,
         notes: {
           planId: plan.id,
+          userId: authUser,
         },
       }),
     });
@@ -107,7 +125,12 @@ router.post("/verify", requireAuthTokenOrTest_DEBUG, async (req, res) => {
       return res.status(500).json({ error: "Razorpay secret is not configured" });
     }
 
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = parsed.data;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId } = parsed.data;
+    const authUserId = (req as any).auth?.userId;
+    if (!authUserId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
     const payload = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expected = crypto
       .createHmac("sha256", keySecret)
@@ -118,10 +141,40 @@ router.post("/verify", requireAuthTokenOrTest_DEBUG, async (req, res) => {
       return res.status(400).json({ verified: false, error: "Invalid signature" });
     }
 
-    return res.json({ verified: true });
+    // Verify planId exists in plans
+    const usedPlanId = planId || "starter"; // default to starter if not provided
+    if (!plans[usedPlanId as keyof typeof plans]) {
+      return res.status(400).json({ verified: false, error: "Invalid plan ID" });
+    }
+    const selectedPlan = plans[usedPlanId as keyof typeof plans];
+
+    // Get user and update credits and plan
+    if (db) {
+      const [user] = await db.select().from(users).where(eq(users.clerkUserId, authUserId));
+      if (!user) {
+        return res.status(404).json({ verified: false, error: "User not found" });
+      }
+
+      const newCredits = (user.remainingCredits ?? 0) + selectedPlan.credits;
+      await db.update(users)
+        .set({
+          remainingCredits: newCredits,
+          plan: selectedPlan.id,
+        })
+        .where(eq(users.clerkUserId, authUserId));
+
+      return res.json({
+        verified: true,
+        remainingCredits: newCredits,
+        plan: selectedPlan.id,
+        creditsAdded: selectedPlan.credits
+      });
+    } else {
+      return res.status(503).json({ verified: true, error: "Database not available" });
+    }
   } catch (error) {
     console.error("Verify payment error:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

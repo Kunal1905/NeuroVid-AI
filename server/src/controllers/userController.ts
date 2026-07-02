@@ -12,27 +12,22 @@ export const getUserStats = async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ error: "Database disabled", details: "Set DATABASE_URL in .env" });
     }
-    let authUser = (req as any).auth?.userId;
-
-    // Fallback: allow testing via header
-    if (!authUser) {
-      const testUserId = req.headers['x-test-user-id'] as string | undefined;
-      if (testUserId) {
-        authUser = testUserId;
-      }
-    }
+    const authUser = (req as any).auth?.userId;
 
     if (!authUser) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Count generations
-    const genCountResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(generations)
-      .where(eq(generations.userId, authUser));
+    // Count generations and get user info
+    const [genCountResult, userResult] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` })
+        .from(generations)
+        .where(eq(generations.userId, authUser)),
+      db.select().from(users).where(eq(users.clerkUserId, authUser))
+    ]);
       
     const videoCount = Number(genCountResult[0]?.count || 0);
+    const user = userResult[0];
 
     // Calculate derived stats
     const xp = videoCount * 150; // 150 XP per video
@@ -49,7 +44,9 @@ export const getUserStats = async (req: Request, res: Response) => {
       streak: `${streak} days`,
       videos: videoCount,
       quizzes,
-      avgScore: `${avgScore}%`
+      avgScore: `${avgScore}%`,
+      remainingCredits: user?.remainingCredits ?? 0,
+      plan: user?.plan ?? 'free'
     });
 
   } catch (error) {
@@ -89,17 +86,8 @@ export const createOrUpdateUser = async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ error: "Database disabled", details: "Set DATABASE_URL in .env" });
     }
-    let authUser = (req as any).auth?.userId;
+    const authUser = (req as any).auth?.userId;
     console.log('Auth User ID:', authUser);
-
-    // Fallback: allow testing via header
-    if (!authUser) {
-      const testUserId = req.headers['x-test-user-id'] as string | undefined;
-      if (testUserId) {
-        authUser = testUserId;
-        console.log('Using test user ID:', authUser);
-      }
-    }
 
     if (!authUser) {
       console.error('No auth user ID found');
@@ -142,7 +130,12 @@ export const createOrUpdateUser = async (req: Request, res: Response) => {
 
     console.log('Upserting user...');
     const upserted: any = await db.insert(users)
-      .values({ clerkUserId: authUser, email: parsedEmail.data })
+      .values({
+        clerkUserId: authUser,
+        email: parsedEmail.data,
+        remainingCredits: 1,
+        plan: 'free'
+      })
       .onConflictDoUpdate({
         target: users.clerkUserId,
         set: { email: parsedEmail.data }
@@ -156,6 +149,8 @@ export const createOrUpdateUser = async (req: Request, res: Response) => {
       clerkUserId: userRow.clerkUserId,
       email: userRow.email,
       testPassed: userRow.testPassed ?? false,
+      remainingCredits: userRow.remainingCredits ?? 1,
+      plan: userRow.plan ?? 'free',
       createdAt: userRow.createdAt,   
     });
 
@@ -179,7 +174,12 @@ export const ensureUserExists = async (req: Request, res: Response, next: any) =
         const emailObj = clerkUser.emailAddresses.find(e => e.id === primaryId) || clerkUser.emailAddresses[0];
         email = emailObj?.emailAddress || "";
       }
-      await db.insert(users).values({ clerkUserId: userId, email }).returning();
+      await db.insert(users).values({
+        clerkUserId: userId,
+        email,
+        remainingCredits: 1,
+        plan: 'free'
+      }).returning();
     }
     next();
   } catch (error) {

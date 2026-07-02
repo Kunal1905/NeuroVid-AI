@@ -4,10 +4,17 @@ import { db } from "../services/db";
 import { generations } from "../models/generate";
 import { eq } from "drizzle-orm";
 import llmService from "../services/llm.service";
-import { veoService } from "../services/veo.service";
+import { hailuoService } from "../services/hailuo.service";
+import { stitchClips } from "../services/Videostitch.service";
+import { refundCredits } from "../services/wallet.service";
+import { chainPlan, VIDEO_TIERS, type PlanId } from "../config/VideoTiers";
 
 interface GenerationJobData {
   sessionId: string;
+  clerkUserId: string;
+  secondsRequested: number;
+  creditsCharged: number;
+  isFreeTrial: boolean;
 }
 
 interface GenerationRecord {
@@ -151,7 +158,7 @@ class GenerationWorker {
       try {
         await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
         console.log(`🎬 Starting video generation...`);
-        videoUrl = await this.generateVideo(script);
+        videoUrl = await this.generateVideo(script, sessionId, job.data.secondsRequested);
       } finally {
         console.timeEnd(`job:${job.id}:generateVideo`);
       }
@@ -178,8 +185,25 @@ class GenerationWorker {
         stack: (error as Error)?.stack,
         name: (error as Error)?.name,
       });
-      await this.handleError(sessionId, error as Error);
-      throw error; // Re-throw to trigger job retry
+
+      // BullMQ re-invokes this whole function on each retry (attempts: 3
+      // in the queue config). This catch block fires on EVERY attempt,
+      // not just the last one. Only treat the generation as truly FAILED
+      // — and only refund — on the final attempt; on intermediate
+      // attempts, leave the DB status alone (it'll either succeed on
+      // retry or hit this branch again with attemptsMade at the limit).
+      const maxAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
+
+      if (isFinalAttempt) {
+        await this.handleError(sessionId, error as Error, job.data);
+      } else {
+        console.log(
+          `🔁 Job ${job.id} failed on attempt ${job.attemptsMade + 1}/${maxAttempts}, will retry — no refund issued yet`,
+        );
+      }
+
+      throw error; // Re-throw to trigger job retry (or final failure if isFinalAttempt)
     }
   }
 
@@ -369,51 +393,73 @@ Rules:
     }
   }
 
-  private async generateVideo(script: any): Promise<string> {
+  private async generateVideo(
+    script: any,
+    sessionId: string,
+    secondsRequested: number,
+  ): Promise<string> {
     try {
-      // Build full narration script for Veo
-      const fullScript =
-        script.bullets?.join("\n\n") ||
-        script.title ||
-        "";
-
-      if (!fullScript.trim()) {
+      const bullets: string[] = script.bullets || [];
+      if (bullets.length === 0) {
         throw new Error("Empty script content for video generation");
       }
 
-      console.log(`🎥 Veo request length: ${fullScript.length}`);
+      // Split the requested duration into Hailuo's native 6s clip length —
+      // a Standard-tier 90s purchase becomes fifteen 6s clips, each
+      // generated from a scene-specific prompt rather than one giant
+      // narration, since Hailuo (like every current video model) doesn't
+      // generate long continuous clips reliably.
+      const stubTier = { totalSeconds: secondsRequested, maxSecondsPerCall: 6 } as any;
+      const clipDurations = chainPlan(stubTier, secondsRequested);
 
-      const maxRetries = Number(process.env.VIDEO_MAX_RETRIES || 3);
-      const shouldRetry = (err: any) => {
-        const status = err?.status;
-        if ([429, 500, 502, 503, 504].includes(status)) return true;
-        const msg = String(err?.message || "").toLowerCase();
-        return msg.includes("timeout") || msg.includes("rate");
-      };
+      console.log(`🎬 Generating ${clipDurations.length} clips (${secondsRequested}s total) for session ${sessionId}`);
 
-      let lastError: any;
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          console.log(`🎬 Veo attempt ${attempt + 1}/${maxRetries}`);
-          const videoUrl = await veoService.createVideo({ script: fullScript });
-          if (!videoUrl) {
-            throw new Error("Video generation returned empty URL");
-          }
-          return videoUrl;
-        } catch (err) {
-          lastError = err;
-          console.error("Error generating video:", err);
-          if (!shouldRetry(err) || attempt === maxRetries - 1) {
+      const clipUrls: string[] = [];
+      for (let i = 0; i < clipDurations.length; i++) {
+        // Cycle through script bullets so each clip is grounded in a
+        // specific point rather than repeating the same generic prompt —
+        // if there are more clips than bullets, later clips reuse the
+        // last bullet (better than an empty/generic prompt).
+        const bullet = bullets[Math.min(i, bullets.length - 1)];
+        const prompt = `${script.title}. Scene ${i + 1}: ${bullet}. Clear, educational, single presenter, well-lit, 16:9.`;
+
+        const maxRetries = Number(process.env.VIDEO_MAX_RETRIES || 3);
+        const shouldRetry = (err: any) => {
+          const status = err?.status;
+          if ([429, 500, 502, 503, 504].includes(status)) return true;
+          const msg = String(err?.message || "").toLowerCase();
+          return msg.includes("timeout") || msg.includes("rate");
+        };
+
+        let clipUrl: string | undefined;
+        let lastError: any;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            console.log(`🎥 Clip ${i + 1}/${clipDurations.length}, attempt ${attempt + 1}/${maxRetries}`);
+            clipUrl = await hailuoService.createClip(prompt);
             break;
+          } catch (err) {
+            lastError = err;
+            console.error(`Error generating clip ${i + 1}:`, err);
+            if (!shouldRetry(err) || attempt === maxRetries - 1) break;
+            const backoffMs = Math.min(8000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 250);
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
           }
-          const backoffMs =
-            Math.min(8000, 1000 * 2 ** attempt) +
-            Math.floor(Math.random() * 250);
-          await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
+
+        if (!clipUrl) {
+          throw lastError || new Error(`Clip ${i + 1} generation failed after ${maxRetries} attempts`);
+        }
+        clipUrls.push(clipUrl);
+
+        // Progress feedback between QUEUED(10) and the next stage(90) —
+        // gives the client something more granular than a flat 60%.
+        const clipProgress = 60 + Math.round(((i + 1) / clipDurations.length) * 25);
+        await this.updateStatus(sessionId, "GENERATING_VIDEO", clipProgress);
       }
 
-      throw lastError || new Error("Video generation failed");
+      console.log(`🧵 Stitching ${clipUrls.length} clips for session ${sessionId}`);
+      return await stitchClips(clipUrls, sessionId);
     } catch (error) {
       console.error("Error generating video:", error);
       throw new Error(`Video generation failed: ${(error as Error).message}`);
@@ -444,7 +490,11 @@ Rules:
     }
   }
 
-  private async handleError(sessionId: string, error: Error): Promise<void> {
+  private async handleError(
+    sessionId: string,
+    error: Error,
+    jobData: GenerationJobData,
+  ): Promise<void> {
     try {
       await db
         .update(generations)
@@ -461,6 +511,26 @@ Rules:
       );
     } catch (updateError) {
       console.error("Error updating failed status:", updateError);
+    }
+
+    // Refund credits for paid generations only — free trials have nothing
+    // to refund. This function is only reached on the FINAL failed
+    // attempt (guarded in processJob's catch block above), so this fires
+    // exactly once per truly-failed generation, never per retry.
+    if (!jobData.isFreeTrial && jobData.creditsCharged > 0) {
+      try {
+        await refundCredits({
+          clerkUserId: jobData.clerkUserId,
+          credits: jobData.creditsCharged,
+        });
+        console.log(`💸 Refunded ${jobData.creditsCharged} credits to ${jobData.clerkUserId} for failed session ${sessionId}`);
+      } catch (refundError) {
+        // This is a real money-handling failure — refund attempts that
+        // throw need to be loud (alerting/Sentry in production), not
+        // silently swallowed, since it directly means a user paid and
+        // got nothing.
+        console.error(`🚨 REFUND FAILED for ${jobData.clerkUserId}, session ${sessionId} — needs manual reconciliation:`, refundError);
+      }
     }
   }
 }

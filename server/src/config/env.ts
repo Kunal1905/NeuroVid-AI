@@ -6,6 +6,8 @@ const envSchema = z.object({
   PORT: z.string().optional(),
   CLIENT_ORIGIN: z.string().url(),
   REDIS_URL: z.string().url(),
+  MINIMAX_API_KEY: z.string(),
+  MINIMAX_GROUP_ID: z.string().optional(),
 });
 
 try {
