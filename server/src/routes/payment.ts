@@ -2,48 +2,57 @@ import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { requireAuthTokenOrTest_DEBUG } from "../middlewares/authMiddleware";
-import { db } from "../services/db";
-import { users } from "../models/user";
-import { eq } from "drizzle-orm";
+import {
+  VIDEO_TIERS,
+  type PlanId,
+  type VideoTier,
+} from "../config/VideoTiers";
+import { applyCreditPurchase } from "../services/wallet.service";
 
 const router = Router();
 
-const plans = {
-  starter: {
-    id: "starter",
-    name: "Starter",
-    amount: 19900,
-    currency: "INR",
-    description: "Starter access with essential features",
-    credits: 10,
-  },
-  pro: {
-    id: "pro",
-    name: "Pro",
-    amount: 49900,
-    currency: "INR",
-    description: "Advanced access for power learners",
-    credits: 50,
-  },
-  team: {
-    id: "team",
-    name: "Team",
-    amount: 99900,
-    currency: "INR",
-    description: "Collaboration features for teams",
-    credits: 200,
-  },
-} as const;
+type PaidPlanId = Exclude<PlanId, "free">;
+
+const paidTiers = (Object.values(VIDEO_TIERS) as VideoTier[]).filter(
+  (tier): tier is VideoTier & { planId: PaidPlanId } => !tier.isFreeTrial,
+);
+
+const plans = Object.fromEntries(
+  paidTiers.map((tier) => [
+    tier.planId,
+    {
+      id: tier.planId,
+      name: tier.label,
+      amount: tier.priceINR * 100,
+      currency: "INR" as const,
+      description: `${tier.totalSeconds} seconds of NeuroVid generation credits`,
+      credits: tier.totalSeconds,
+    },
+  ]),
+) as Record<PaidPlanId, {
+  id: PaidPlanId;
+  name: string;
+  amount: number;
+  currency: "INR";
+  description: string;
+  credits: number;
+}>;
+
+const isPaidPlanId = (value: string): value is PaidPlanId => value in plans;
+
+const paidPlanIdSchema = z.string().refine(isPaidPlanId, {
+  message: "Invalid plan ID",
+});
 
 const createOrderSchema = z.object({
-  planId: z.enum(["starter", "pro", "team"]),
+  planId: paidPlanIdSchema,
 });
 
 const verifySchema = z.object({
   razorpay_order_id: z.string().min(1),
   razorpay_payment_id: z.string().min(1),
   razorpay_signature: z.string().min(1),
-  planId: z.enum(["starter", "pro", "team"]).optional(),
+  planId: paidPlanIdSchema,
 });
 
 router.post("/create-order", requireAuthTokenOrTest_DEBUG, async (req, res) => {
@@ -62,13 +71,8 @@ router.post("/create-order", requireAuthTokenOrTest_DEBUG, async (req, res) => {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
-    console.log("🔍 Debug - Razorpay keys:");
-    console.log("   keyId:", keyId ? "[SET]" : "[NOT SET]");
-    console.log("   keySecret:", keySecret ? "[SET]" : "[NOT SET]");
-    console.log("   All env vars present:", Object.keys(process.env));
-
     if (!keyId || !keySecret) {
-      return res.status(500).json({ error: "Razorpay keys are not configured", debug: { keyIdSet: !!keyId, keySecretSet: !!keySecret } });
+      return res.status(500).json({ error: "Razorpay keys are not configured" });
     }
 
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
@@ -141,37 +145,48 @@ router.post("/verify", requireAuthTokenOrTest_DEBUG, async (req, res) => {
       return res.status(400).json({ verified: false, error: "Invalid signature" });
     }
 
-    // Verify planId exists in plans
-    const usedPlanId = planId || "starter"; // default to starter if not provided
-    if (!plans[usedPlanId as keyof typeof plans]) {
-      return res.status(400).json({ verified: false, error: "Invalid plan ID" });
+    const selectedPlan = plans[planId];
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    if (!keyId) {
+      return res.status(500).json({ error: "Razorpay key is not configured" });
     }
-    const selectedPlan = plans[usedPlanId as keyof typeof plans];
 
-    // Get user and update credits and plan
-    if (db) {
-      const [user] = await db.select().from(users).where(eq(users.clerkUserId, authUserId));
-      if (!user) {
-        return res.status(404).json({ verified: false, error: "User not found" });
-      }
-
-      const newCredits = (user.remainingCredits ?? 0) + selectedPlan.credits;
-      await db.update(users)
-        .set({
-          remainingCredits: newCredits,
-          plan: selectedPlan.id,
-        })
-        .where(eq(users.clerkUserId, authUserId));
-
-      return res.json({
-        verified: true,
-        remainingCredits: newCredits,
-        plan: selectedPlan.id,
-        creditsAdded: selectedPlan.credits
+    const orderResponse = await fetch(
+      `https://api.razorpay.com/v1/orders/${encodeURIComponent(razorpay_order_id)}`,
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`,
+        },
+      },
+    );
+    const order = await orderResponse.json().catch(() => ({}));
+    if (
+      !orderResponse.ok ||
+      order.amount !== selectedPlan.amount ||
+      order.currency !== selectedPlan.currency ||
+      order.notes?.planId !== selectedPlan.id ||
+      order.notes?.userId !== authUserId
+    ) {
+      return res.status(400).json({
+        verified: false,
+        error: "Payment order does not match the selected credit pack",
       });
-    } else {
-      return res.status(503).json({ verified: true, error: "Database not available" });
     }
+
+    const purchase = await applyCreditPurchase({
+      clerkUserId: authUserId,
+      credits: selectedPlan.credits,
+      amountInrPaid: selectedPlan.amount / 100,
+      razorpayPaymentId: razorpay_payment_id,
+      planId: selectedPlan.id,
+    });
+
+    return res.json({
+      verified: true,
+      plan: selectedPlan.id,
+      creditsAdded: purchase.alreadyCredited ? 0 : selectedPlan.credits,
+      alreadyCredited: purchase.alreadyCredited,
+    });
   } catch (error) {
     console.error("Verify payment error:", error);
     return res.status(500).json({ error: "Internal server error" });

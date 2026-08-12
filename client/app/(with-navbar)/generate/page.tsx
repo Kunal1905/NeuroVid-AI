@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Video,
   Info,
-  Globe,
   Zap,
   Clock,
   Brain,
@@ -14,7 +13,7 @@ import {
   Loader2,
   LayoutDashboard,
 } from "lucide-react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -36,11 +35,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiUrl } from "@/lib/api";
+import {
+  formatDuration,
+  isPlanId,
+  type PlanId,
+  type PlansResponse,
+  type VideoTier,
+} from "@/lib/plans";
 import PlanLimitReached from "@/components/PlanLimitReached";
 import { AlertTriangle } from "lucide-react";
 
 export default function Generate() {
-  const { user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
 
@@ -49,7 +54,10 @@ export default function Generate() {
   const [details, setDetails] = useState("");
   const [category, setCategory] = useState("");
   const [language, setLanguage] = useState("");
-  const [duration, setDuration] = useState([2]);
+  const [duration, setDuration] = useState([10]);
+  const [plans, setPlans] = useState<VideoTier[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("free");
+  const [remainingCredits, setRemainingCredits] = useState(0);
 
   // Video generation flow (only added what's needed)
   const [showModal, setShowModal] = useState(false);
@@ -61,12 +69,44 @@ export default function Generate() {
     "idle" | "queued" | "processing" | "completed" | "error"
   >("idle");
   const [llmBusy, setLlmBusy] = useState(false);
-  const [usage, setUsage] = useState({ used: 0, limit: 3 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
 
   // Brain dominance (unchanged)
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
+
+  const selectedTier = plans.find((plan) => plan.planId === selectedPlanId);
+  const availableSeconds = selectedTier
+    ? selectedTier.isFreeTrial
+      ? selectedTier.totalSeconds
+      : Math.min(selectedTier.totalSeconds, remainingCredits)
+    : 0;
+  const maxDuration = selectedTier
+    ? Math.max(
+        1,
+        Math.min(selectedTier.maxGenerationSeconds, availableSeconds),
+      )
+    : 1;
+  const canUseSelectedTier = Boolean(
+    selectedTier &&
+      (selectedTier.isFreeTrial || remainingCredits >= duration[0]),
+  );
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const res = await fetch(apiUrl("/api/plans"));
+        if (!res.ok) throw new Error("Unable to load credit packs");
+        const data = (await res.json()) as PlansResponse;
+        setPlans(data.plans);
+      } catch (error) {
+        console.error("Error fetching plans:", error);
+        setErrorMsg("Could not load video duration limits. Please refresh.");
+      }
+    };
+
+    fetchPlans();
+  }, []);
 
   useEffect(() => {
     const fetchBrainDominance = async () => {
@@ -93,7 +133,7 @@ export default function Generate() {
   }, [getToken]);
 
   useEffect(() => {
-    const fetchUsage = async () => {
+    const fetchWallet = async () => {
       try {
         const token = await getToken();
         if (!token) return;
@@ -102,14 +142,20 @@ export default function Generate() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        const used = Number(data.videos || 0);
-        setUsage({ used, limit: 3 });
+        const accountPlan = isPlanId(data.plan) ? data.plan : "free";
+        setSelectedPlanId(accountPlan);
+        setRemainingCredits(Math.max(0, Number(data.remainingCredits) || 0));
       } catch (error) {
-        console.error("Error fetching usage:", error);
+        console.error("Error fetching wallet:", error);
       }
     };
-    fetchUsage();
+    fetchWallet();
   }, [getToken]);
+
+  useEffect(() => {
+    if (!selectedTier) return;
+    setDuration(([seconds]) => [Math.min(Math.max(1, seconds), maxDuration)]);
+  }, [maxDuration, selectedTier]);
 
   // Real submit + polling (only changed part)
   const handleSubmit = async () => {
@@ -131,6 +177,7 @@ export default function Generate() {
         category,
         language,
         duration: duration[0],
+        planId: selectedPlanId,
       });
 
       const res = await fetch(apiUrl("/api/generate/submitGeneration"), {
@@ -145,13 +192,14 @@ export default function Generate() {
           category,
           language,
           duration: duration[0],
+          planId: selectedPlanId,
         }),
       });
       console.log("[generate] submit response status", res.status);
 
-      if (res.status === 429) {
+      if (res.status === 402 || res.status === 429) {
         const err = await res.json();
-        console.log("[generate] submit 429 response", err);
+        console.log("[generate] submit limit response", err);
         setShowPlanLimit(true);
         setIsGenerating(false);
         return;
@@ -184,8 +232,10 @@ export default function Generate() {
 
       if (data.sessionId) {
         setSessionId(data.sessionId);
-        if (typeof data.used === "number") {
-          setUsage({ used: data.used, limit: data.limit || 3 });
+        if (!data.isFreeTrial && typeof data.creditsCharged === "number") {
+          setRemainingCredits((credits) =>
+            Math.max(0, credits - data.creditsCharged),
+          );
         }
         pollStatus(data.sessionId);
       } else {
@@ -311,13 +361,17 @@ export default function Generate() {
           <p className="text-muted-foreground">
             Create AI-powered educational videos tailored to your learning style
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-gray-300">
-            Videos this month:{" "}
-            <span className={`font-semibold flex items-center gap-1 ${
-              usage.used >= usage.limit ? "text-red-400" : "text-violet-300"
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300">
+            {selectedTier?.isFreeTrial ? "One-time free trial:" : "Credit balance:"}
+            <span className={`flex items-center gap-1 font-semibold ${
+              !selectedTier?.isFreeTrial && remainingCredits === 0
+                ? "text-red-400"
+                : "text-violet-300"
             }`}>
-              {usage.used} / {usage.limit}
-              {usage.used >= usage.limit && (
+              {selectedTier?.isFreeTrial
+                ? formatDuration(selectedTier.totalSeconds)
+                : formatDuration(remainingCredits)}
+              {!selectedTier?.isFreeTrial && remainingCredits === 0 && (
                 <AlertTriangle className="w-4 h-4 text-red-400" />
               )}
             </span>
@@ -339,58 +393,34 @@ export default function Generate() {
                 <h3 className="font-semibold text-lg">Video Duration</h3>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Estimated Time</span>
+                  <span className="text-muted-foreground">Selected duration</span>
 
                   <span className="text-violet-400 font-semibold">
-                    {duration[0]} min
+                    {formatDuration(duration[0])}
                   </span>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Processing</span>
-
-                    <span className="text-violet-400">{duration[0] * 15}s</span>
-                  </div>
-
-                  <div className="w-full bg-gray-800 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-violet-500 to-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${((duration[0] - 2) / 3) * 100}%` }} // Maps 2-5 range to 0-100%
-                    ></div>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Active pack</span>
+                  <span className="font-medium text-white">
+                    {selectedTier?.label ?? "Loading..."}
+                  </span>
                 </div>
 
-                <div className="pt-4 space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Complexity</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Cost</span>
+                  <span className="font-medium text-white">
+                    {selectedTier?.isFreeTrial
+                      ? "Free trial"
+                      : `${duration[0]} credits`}
+                  </span>
+                </div>
 
-                    <span
-                      className={`font-medium ${
-                        duration[0] <= 2.5
-                          ? "text-green-400"
-                          : duration[0] <= 3.5
-                            ? "text-yellow-400"
-                            : "text-orange-400"
-                      }`}
-                    >
-                      {duration[0] <= 2.5
-                        ? "Simple"
-                        : duration[0] <= 3.5
-                          ? "Medium"
-                          : "Complex"}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Resources</span>
-
-                    <span className="text-white">
-                      {Math.round(duration[0] * 1.2)} sources
-                    </span>
-                  </div>
+                <div className="border-t border-gray-800 pt-4 text-xs leading-5 text-gray-400">
+                  One credit generates one second of video. A single generation
+                  can use up to {formatDuration(maxDuration)} from this pack.
                 </div>
               </div>
 
@@ -557,31 +587,36 @@ export default function Generate() {
                 </div>
               </div>
 
-              {/* DURATION - Updated range to 2-5 minutes */}
+              {/* DURATION */}
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label>Video duration</Label>
 
                   <span className="text-violet-400 font-semibold">
-                    {duration[0]} minutes
+                    {formatDuration(duration[0])}
                   </span>
                 </div>
 
                 <Slider
                   value={duration}
                   onValueChange={setDuration}
-                  min={2}
-                  max={5}
+                  min={1}
+                  max={maxDuration}
                   step={1}
+                  disabled={!selectedTier || availableSeconds === 0}
                   className="bg-gray-800/50 border border-gray-600 rounded-full h-3"
                 />
 
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>2 min</span>
-
-                  <span>5 min</span>
+                  <span>1s</span>
+                  <span>{formatDuration(maxDuration)} max</span>
                 </div>
+                <p className="text-xs text-slate-400">
+                  Raw seconds are charged from your wallet when the request is
+                  accepted. The server may split the video into shorter clips
+                  before stitching it together.
+                </p>
               </div>
 
               {/* BRAIN DOMINANCE BASED CONTENT PRESENTATION */}
@@ -699,7 +734,7 @@ export default function Generate() {
               <Button
                 size="lg"
                 onClick={handleSubmit}
-                disabled={!topic.trim() || isGenerating}
+                disabled={!topic.trim() || isGenerating || !canUseSelectedTier}
                 className="
 
                   h-14 w-full

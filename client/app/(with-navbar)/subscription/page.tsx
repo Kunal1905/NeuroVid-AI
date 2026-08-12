@@ -1,75 +1,62 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, Sparkles, Shield, Crown, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import {
+  Check,
+  Clapperboard,
+  Clock3,
+  Crown,
+  Shield,
+  Sparkles,
+} from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import clsx from "clsx";
-import { API_BASE } from "@/lib/api";
+
+import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api";
+import {
+  formatDuration,
+  type PlanId,
+  type PlansResponse,
+  type VideoTier,
+} from "@/lib/plans";
+
+type RazorpayPaymentResponse = {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayFailureResponse = {
+  error?: { description?: string };
+};
+
+type RazorpayOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill: { name: string; email: string };
+  theme: { color: string };
+  handler: (response: RazorpayPaymentResponse) => Promise<void>;
+  modal: { ondismiss: () => void };
+};
+
+type RazorpayInstance = {
+  open: () => void;
+  on: (
+    event: "payment.failed",
+    handler: (response: RazorpayFailureResponse) => void,
+  ) => void;
+};
 
 declare global {
   interface Window {
-    Razorpay?: any;
+    Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
   }
 }
-
-type Plan = {
-  id: "starter" | "pro" | "team";
-  name: string;
-  price: string;
-  period: string;
-  subtitle: string;
-  features: string[];
-  highlight?: boolean;
-  icon: ReactNode;
-};
-
-
-const plans: Plan[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    price: "₹199",
-    period: "per month",
-    subtitle: "Perfect to begin your learning streak.",
-    features: [
-      "10 video explanations / month",
-      "Standard rendering speed",
-      "Quiz summaries and recall",
-      "Email support",
-    ],
-    icon: <Sparkles className="h-5 w-5" />,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "₹499",
-    period: "per month",
-    subtitle: "Unlock deeper, faster understanding.",
-    features: [
-      "Unlimited video explanations",
-      "Priority rendering speed",
-      "Advanced quizzes and analytics",
-      "Chat access with study modes",
-    ],
-    highlight: true,
-    icon: <Crown className="h-5 w-5" />,
-  },
-  {
-    id: "team",
-    name: "Team",
-    price: "₹999",
-    period: "per month",
-    subtitle: "For teams learning together.",
-    features: [
-      "Everything in Pro",
-      "Shared workspaces",
-      "Team progress analytics",
-      "Priority onboarding",
-    ],
-    icon: <Users className="h-5 w-5" />,
-  },
-];
 
 const loadRazorpay = () =>
   new Promise<boolean>((resolve) => {
@@ -77,10 +64,17 @@ const loadRazorpay = () =>
       resolve(false);
       return;
     }
-    if (document.getElementById("razorpay-checkout")) {
+    if (window.Razorpay) {
       resolve(true);
       return;
     }
+    const existing = document.getElementById("razorpay-checkout");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(true), { once: true });
+      existing.addEventListener("error", () => resolve(false), { once: true });
+      return;
+    }
+
     const script = document.createElement("script");
     script.id = "razorpay-checkout";
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
@@ -89,132 +83,137 @@ const loadRazorpay = () =>
     document.body.appendChild(script);
   });
 
-const Subscription = () => {
+const packIcon = (planId: PlanId) => {
+  if (planId === "starter") return <Sparkles className="h-5 w-5" />;
+  if (planId === "standard") return <Clapperboard className="h-5 w-5" />;
+  if (planId === "pro") return <Crown className="h-5 w-5" />;
+  return <Clock3 className="h-5 w-5" />;
+};
+
+export default function Subscription() {
   const { user } = useUser();
   const { getToken } = useAuth();
-  const [loadingPlan, setLoadingPlan] = useState<Plan["id"] | null>(null);
+  const [plans, setPlans] = useState<VideoTier[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [loadingPlan, setLoadingPlan] = useState<PlanId | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [statusType, setStatusType] = useState<"success" | "error" | "info">("info");
+  const [statusType, setStatusType] = useState<"success" | "error" | "info">(
+    "info",
+  );
 
-  const keyId = useMemo(() => process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID, []);
+  const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const freeTier = plans.find((plan) => plan.isFreeTrial);
+  const paidPlans = plans.filter((plan) => !plan.isFreeTrial);
 
   useEffect(() => {
-    loadRazorpay();
+    const fetchPlans = async () => {
+      try {
+        const response = await fetch(apiUrl("/api/plans"));
+        if (!response.ok) throw new Error("Unable to load credit packs");
+        const data = (await response.json()) as PlansResponse;
+        setPlans(data.plans);
+      } catch (error) {
+        console.error("Plans error:", error);
+        setStatus("Credit packs could not be loaded. Please refresh the page.");
+        setStatusType("error");
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+
+    fetchPlans();
   }, []);
 
-  const handleSubscribe = async (plan: Plan) => {
+  const handlePurchase = async (plan: VideoTier) => {
     setStatus(null);
-    setStatusType("info");
-    setLoadingPlan(plan.id);
+    setLoadingPlan(plan.planId);
 
     try {
-      const scriptOk = await loadRazorpay();
-      if (!scriptOk) {
-        setStatus("Unable to load Razorpay checkout. Please try again.");
+      if (!keyId) {
+        setStatus("Razorpay is not configured for this deployment.");
         setStatusType("error");
         return;
       }
 
-      if (!keyId) {
-        setStatus("Razorpay key is missing. Set NEXT_PUBLIC_RAZORPAY_KEY_ID.");
+      const scriptOk = await loadRazorpay();
+      if (!scriptOk || !window.Razorpay) {
+        setStatus("Unable to load Razorpay checkout. Please try again.");
         setStatusType("error");
         return;
       }
 
       const token = await getToken();
       if (!token) {
-        setStatus("You must be logged in to subscribe.");
+        setStatus("You must be logged in to buy credits.");
         setStatusType("error");
         return;
       }
 
-      const orderRes = await fetch(`${API_BASE}/api/payments/create-order`, {
+      const orderResponse = await fetch(apiUrl("/api/payments/create-order"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ planId: plan.id }),
+        body: JSON.stringify({ planId: plan.planId }),
       });
-
-      if (!orderRes.ok) {
-        const errorData = await orderRes.json().catch(() => ({}));
-        setStatus(errorData.error || "Failed to create payment order.");
-        setStatusType("error");
-        return;
+      if (!orderResponse.ok) {
+        const error = await orderResponse.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to create payment order.");
       }
 
-      const order = await orderRes.json();
-      const options = {
+      const order = await orderResponse.json();
+      const razorpay = new window.Razorpay({
         key: keyId,
         amount: order.amount,
         currency: order.currency,
         name: "NeuroVid AI",
-        description: `${order.planName} subscription`,
+        description: `${plan.label}: ${formatDuration(plan.totalSeconds)} of video credits`,
         order_id: order.orderId,
         prefill: {
           name: user?.fullName || "",
           email: user?.primaryEmailAddress?.emailAddress || "",
         },
-        theme: {
-          color: "#7C3AED",
-        },
-        handler: async (response: {
-          razorpay_payment_id: string;
-          razorpay_order_id: string;
-          razorpay_signature: string;
-        }) => {
-          const verifyRes = await fetch(`${API_BASE}/api/payments/verify`, {
+        theme: { color: "#7C3AED" },
+        handler: async (payment) => {
+          const verifyResponse = await fetch(apiUrl("/api/payments/verify"), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              ...response,
-              planId: plan.id
-            }),
+            body: JSON.stringify({ ...payment, planId: plan.planId }),
           });
-
-          if (!verifyRes.ok) {
-            const errorData = await verifyRes.json().catch(() => ({}));
-            setStatus(errorData.error || "Payment verification failed.");
+          const verification = await verifyResponse.json().catch(() => ({}));
+          if (!verifyResponse.ok || !verification.verified) {
+            setStatus(verification.error || "Payment verification failed.");
             setStatusType("error");
             return;
           }
 
-          const verify = await verifyRes.json();
-          if (verify.verified) {
-            setStatus("Payment successful. Your subscription is now active.");
-            setStatusType("success");
-          } else {
-            setStatus("Payment verification failed.");
-            setStatusType("error");
-          }
+          setStatus(
+            verification.alreadyCredited
+              ? "This payment was already credited to your wallet."
+              : `${formatDuration(verification.creditsAdded)} added to your wallet.`,
+          );
+          setStatusType("success");
         },
         modal: {
           ondismiss: () => {
-            setStatus("Payment cancelled.");
+            setStatus("Payment cancelled. No credits were added.");
             setStatusType("info");
           },
         },
-      };
+      });
 
-      if (!window.Razorpay) {
-        setStatus("Razorpay SDK not available.");
-        setStatusType("error");
-        return;
-      }
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (response: any) => {
-        setStatus(response?.error?.description || "Payment failed.");
+      razorpay.on("payment.failed", (response) => {
+        setStatus(response.error?.description || "Payment failed.");
         setStatusType("error");
       });
-      rzp.open();
+      razorpay.open();
     } catch (error) {
-      console.error("Subscription error:", error);
-      setStatus("Something went wrong while starting the payment.");
+      console.error("Credit purchase error:", error);
+      setStatus(error instanceof Error ? error.message : "Unable to start payment.");
       setStatusType("error");
     } finally {
       setLoadingPlan(null);
@@ -222,109 +221,111 @@ const Subscription = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-violet-500/20 blur-3xl" />
-          <div className="absolute top-20 right-10 h-72 w-72 rounded-full bg-fuchsia-500/10 blur-3xl" />
-          <div className="absolute bottom-0 left-10 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl" />
-        </div>
-
-        <div className="relative mx-auto max-w-6xl px-4 pb-24 pt-24">
-          <div className="flex flex-col items-start gap-6">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-violet-200">
-              <Shield className="h-4 w-4" />
-              Secure payments powered by Razorpay
-            </div>
-            <h1 className="text-4xl font-semibold tracking-tight text-white md:text-5xl">
-              Choose a plan that grows with your learning.
-            </h1>
-            <p className="max-w-2xl text-base text-slate-300 md:text-lg">
-              Get more clarity, more momentum, and deeper understanding with guided video explanations and
-              personalized learning workflows.
-            </p>
+    <main className="min-h-screen bg-slate-950 px-4 pb-24 pt-28 text-white">
+      <div className="mx-auto max-w-6xl">
+        <header className="max-w-3xl">
+          <div className="mb-5 inline-flex items-center gap-2 text-sm text-violet-300">
+            <Shield className="h-4 w-4" />
+            Secure one-time payments through Razorpay
           </div>
+          <h1 className="text-4xl font-semibold md:text-5xl">Video credit packs</h1>
+          <p className="mt-4 text-base leading-7 text-slate-300 md:text-lg">
+            Buy only the generation time you need. One credit equals one second
+            of finished video, and purchased credits stay in your wallet until
+            you use them.
+          </p>
+        </header>
 
-          <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className={clsx(
-                  "relative flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.8)] backdrop-blur-xl",
-                  plan.highlight && "border-violet-400/50 bg-gradient-to-br from-violet-500/20 via-white/5 to-white/5"
-                )}
-              >
-                {plan.highlight && (
-                  <div className="absolute right-4 top-4 rounded-full bg-violet-500/20 px-3 py-1 text-xs font-semibold text-violet-100">
-                    Most popular
-                  </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/20 text-violet-200">
-                    {plan.icon}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-white">{plan.name}</h3>
-                    <p className="text-sm text-slate-300">{plan.subtitle}</p>
-                  </div>
-                </div>
-                <div className="mt-6 flex items-baseline gap-2">
-                  <span className="text-3xl font-semibold text-white">{plan.price}</span>
-                  <span className="text-sm text-slate-400">{plan.period}</span>
-                </div>
-                <div className="mt-6 flex flex-col gap-3 text-sm text-slate-200">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 text-violet-300" />
-                      <span>{feature}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-8">
-                  <Button
-                    className={clsx(
-                      "w-full rounded-full",
-                      plan.highlight
-                        ? "bg-violet-500 text-white hover:bg-violet-600"
-                        : "bg-white/10 text-white hover:bg-white/20"
-                    )}
-                    onClick={() => handleSubscribe(plan)}
-                    disabled={loadingPlan === plan.id}
-                  >
-                    {loadingPlan === plan.id ? "Starting payment..." : "Subscribe"}
-                  </Button>
-                </div>
-              </div>
+        {freeTier && (
+          <section className="mt-10 flex flex-col gap-5 border-y border-white/10 py-6 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-semibold text-white">One-time free trial</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Generate up to {formatDuration(freeTier.totalSeconds)} once per
+                eligible device. No card required.
+              </p>
+            </div>
+            <div className="text-2xl font-semibold text-violet-300">₹0</div>
+          </section>
+        )}
+
+        {plansLoading ? (
+          <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {[1, 2, 3, 4].map((item) => (
+              <div key={item} className="h-80 animate-pulse rounded-lg bg-white/5" />
             ))}
           </div>
+        ) : (
+          <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {paidPlans.map((plan) => {
+              const highlighted = plan.planId === "standard";
+              return (
+                <article
+                  key={plan.planId}
+                  className={clsx(
+                    "flex min-h-80 flex-col rounded-lg border bg-white/5 p-6",
+                    highlighted ? "border-violet-400/60" : "border-white/10",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/20 text-violet-200">
+                      {packIcon(plan.planId)}
+                    </div>
+                    {highlighted && (
+                      <span className="text-xs font-medium text-violet-300">Popular</span>
+                    )}
+                  </div>
+                  <h2 className="mt-5 text-xl font-semibold">{plan.label}</h2>
+                  <p className="mt-2 text-3xl font-semibold">₹{plan.priceINR}</p>
+                  <p className="mt-1 text-sm text-slate-400">One-time purchase</p>
 
-          <div className="mt-12 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-slate-200">
-            <div className="flex items-start gap-2">
-              <Shield className="mt-0.5 h-4 w-4 text-violet-300" />
-              <span>Cards, UPI, and netbanking supported through Razorpay.</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <Check className="mt-0.5 h-4 w-4 text-violet-300" />
-              <span>Cancel anytime from your profile. Your plan stays active until the end of the billing period.</span>
-            </div>
+                  <ul className="mt-6 space-y-3 text-sm text-slate-200">
+                    <li className="flex gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+                      {formatDuration(plan.totalSeconds)} of video credits
+                    </li>
+                    <li className="flex gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+                      1 credit equals 1 generated second
+                    </li>
+                    <li className="flex gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+                      Up to {formatDuration(plan.maxGenerationSeconds)} per generation
+                    </li>
+                  </ul>
+
+                  <Button
+                    className="mt-auto w-full"
+                    onClick={() => handlePurchase(plan)}
+                    disabled={loadingPlan === plan.planId}
+                  >
+                    {loadingPlan === plan.planId ? "Opening checkout..." : "Buy credits"}
+                  </Button>
+                </article>
+              );
+            })}
           </div>
+        )}
 
-          {status && (
-            <div
-              className={clsx(
-                "mt-6 rounded-2xl border p-4 text-sm",
-                statusType === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
-                statusType === "error" && "border-rose-500/30 bg-rose-500/10 text-rose-200",
-                statusType === "info" && "border-white/10 bg-white/5 text-slate-200"
-              )}
-            >
-              {status}
-            </div>
-          )}
+        <div className="mt-10 border-t border-white/10 pt-6 text-sm text-slate-400">
+          Prices shown are final checkout prices. Credits are not a recurring
+          subscription and do not reset each month.
         </div>
-      </div>
-    </div>
-  );
-};
 
-export default Subscription;
+        {status && (
+          <div
+            role="status"
+            className={clsx(
+              "mt-6 rounded-lg border p-4 text-sm",
+              statusType === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+              statusType === "error" && "border-rose-500/30 bg-rose-500/10 text-rose-200",
+              statusType === "info" && "border-white/10 bg-white/5 text-slate-200",
+            )}
+          >
+            {status}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

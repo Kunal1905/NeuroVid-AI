@@ -162,10 +162,14 @@ The object-storage upload in the stitcher still needs to be wired to your S3/R2 
 
 ## Plans, Credits, and Refunds
 - `1 credit = 1 second` of generated video.
-- Free trial users get one fingerprint-gated short generation.
+- `server/src/config/VideoTiers.ts` is the only source of truth for tier IDs, prices, and included seconds.
+- `GET /api/plans` exposes that catalog to the frontend; pricing is not duplicated in client code or payment routes.
+- Free trial users get one fingerprint-gated 10-second generation. It is not a monthly allowance and does not add credits to the paid wallet.
+- Starter, Standard, Pro, and Creator are one-time credit purchases, not recurring subscriptions.
 - Paid generations reserve credits before queuing.
 - If a paid generation fails on the final BullMQ retry, the worker refunds the reserved credits.
 - Queue priority is tier-aware: higher paid tiers are processed before lower tiers and free jobs.
+- The dashboard's "Minutes generated" statistic sums the duration of `COMPLETED` generations only, so failed or unfinished requests are not counted as delivered video.
 
 ## Roadmap
 - Multi-language video support

@@ -280,9 +280,10 @@ export async function applyCreditPurchase(params: {
 
     await client.query(
       `UPDATE users
-       SET remaining_credits = remaining_credits + $1
+       SET remaining_credits = remaining_credits + $1,
+           plan = $3
        WHERE clerk_user_id = $2`,
-      [params.credits, params.clerkUserId]
+      [params.credits, params.clerkUserId, params.planId]
     );
 
     await client.query(

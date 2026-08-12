@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { users } from '../models/user';
 import { generations } from '../models/generate';
 import { db } from '../services/db';
@@ -18,31 +18,39 @@ export const getUserStats = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Count generations and get user info
-    const [genCountResult, userResult] = await Promise.all([
-      db.select({ count: sql<number>`count(*)` })
+    // Only completed generations count toward delivered learning activity.
+    const [generationStats, userResult] = await Promise.all([
+      db.select({
+        count: sql<number>`count(*)`,
+        totalSeconds: sql<number>`coalesce(sum(${generations.duration}), 0)`,
+      })
         .from(generations)
-        .where(eq(generations.userId, authUser)),
+        .where(and(
+          eq(generations.userId, authUser),
+          eq(generations.status, 'COMPLETED'),
+        )),
       db.select().from(users).where(eq(users.clerkUserId, authUser))
     ]);
-      
-    const videoCount = Number(genCountResult[0]?.count || 0);
+
+    const completedVideoCount = Number(generationStats[0]?.count || 0);
+    const totalSeconds = Number(generationStats[0]?.totalSeconds || 0);
+    const minutesGenerated = Number((totalSeconds / 60).toFixed(1));
     const user = userResult[0];
 
     // Calculate derived stats
-    const xp = videoCount * 150; // 150 XP per video
+    const xp = completedVideoCount * 150; // 150 XP per delivered video
     const level = Math.floor(xp / 1000) + 1;
     
     // Mock other stats for now (until we have quiz results table)
-    const streak = videoCount > 0 ? 1 : 0; // Simple mock
-    const quizzes = videoCount; // Assume 1 quiz per video
-    const avgScore = videoCount > 0 ? 85 : 0; // Mock score
+    const streak = completedVideoCount > 0 ? 1 : 0; // Simple mock
+    const quizzes = completedVideoCount; // Assume 1 quiz per completed video
+    const avgScore = completedVideoCount > 0 ? 85 : 0; // Mock score
 
     res.json({
       xp: xp.toLocaleString(),
       level,
       streak: `${streak} days`,
-      videos: videoCount,
+      minutesGenerated,
       quizzes,
       avgScore: `${avgScore}%`,
       remainingCredits: user?.remainingCredits ?? 0,
@@ -133,7 +141,7 @@ export const createOrUpdateUser = async (req: Request, res: Response) => {
       .values({
         clerkUserId: authUser,
         email: parsedEmail.data,
-        remainingCredits: 1,
+        remainingCredits: 0,
         plan: 'free'
       })
       .onConflictDoUpdate({
@@ -149,7 +157,7 @@ export const createOrUpdateUser = async (req: Request, res: Response) => {
       clerkUserId: userRow.clerkUserId,
       email: userRow.email,
       testPassed: userRow.testPassed ?? false,
-      remainingCredits: userRow.remainingCredits ?? 1,
+      remainingCredits: userRow.remainingCredits ?? 0,
       plan: userRow.plan ?? 'free',
       createdAt: userRow.createdAt,   
     });
@@ -177,7 +185,7 @@ export const ensureUserExists = async (req: Request, res: Response, next: any) =
       await db.insert(users).values({
         clerkUserId: userId,
         email,
-        remainingCredits: 1,
+        remainingCredits: 0,
         plan: 'free'
       }).returning();
     }

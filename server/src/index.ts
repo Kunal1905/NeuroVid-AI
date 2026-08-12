@@ -14,6 +14,7 @@ import surveyRoutes from "./routes/survey";
 import generationRoutes from "./routes/generate";
 import paymentRoutes from "./routes/payment";
 import chatRoutes from "./routes/chat";
+import planRoutes from "./routes/plans";
 import { generationQueue } from "./queues/generation.queue";
 import { redisConnection } from "./config/redis";
 import { db } from "./services/db";
@@ -238,6 +239,7 @@ async function initializeServer() {
     app.use("/api/generate", generationRoutes);
     app.use("/api/payments", paymentRoutes);
     app.use("/api/chat", chatRoutes);
+    app.use("/api/plans", planRoutes);
 
     app.use("/admin/queues", serverAdapter.getRouter());
 

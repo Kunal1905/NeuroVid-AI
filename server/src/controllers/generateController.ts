@@ -7,6 +7,7 @@ import { brainDominanceSurveys } from "../models/survey";
 import { generationQueue, priorityForTier } from "../queues/generation.queue";
 import { redisConnection } from "../config/redis";
 import {
+  MAX_GENERATION_SECONDS,
   VIDEO_TIERS,
   type PlanId,
 } from "../config/VideoTiers";
@@ -92,7 +93,10 @@ export const submitGeneration = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
     const safeDetails = typeof details === "string" ? details : "";
-    const requestedSeconds = Math.max(1, Math.min(Number(duration) || 8, 120));
+    const requestedSeconds = Math.max(
+      1,
+      Math.min(Number(duration) || 8, MAX_GENERATION_SECONDS),
+    );
 
     const fingerprint = (req.body.deviceFingerprint as string) || "";
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
@@ -119,7 +123,12 @@ export const submitGeneration = async (req: Request, res: Response) => {
       // and seconds are 1:1 under this pricing model, so creditsToCharge
       // IS the seconds requested — no per-tier rate lookup needed.
       const requestedPlan = (req.body.planId as PlanId) || "starter";
-      if (!VIDEO_TIERS[requestedPlan] || requestedPlan === "free") {
+      if (requestedPlan === "free") {
+        return res.status(402).json({
+          error: "Free trial already used. Purchase a credit pack to continue.",
+        });
+      }
+      if (!VIDEO_TIERS[requestedPlan]) {
         return res.status(400).json({ error: "Invalid planId" });
       }
       chosenTier = requestedPlan;

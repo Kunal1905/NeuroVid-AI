@@ -32,13 +32,13 @@ export default function PlanLimitReached({ onReset }: PlanLimitReachedProps) {
 
           {/* Heading */}
           <h3 className="text-2xl font-bold text-white mb-3">
-            You've Reached Your Free Limit
+            More Credits Needed
           </h3>
 
           {/* Subtext */}
           <p className="text-gray-400 mb-8 leading-relaxed">
-            You've used all 3 of your free video generations. Upgrade your plan
-            to keep learning with unlimited videos.
+            The one-time free trial has been used or your wallet does not have
+            enough seconds for this video. Buy a credit pack to continue.
           </p>
 
           {/* CTA Buttons */}
@@ -48,7 +48,7 @@ export default function PlanLimitReached({ onReset }: PlanLimitReachedProps) {
               onClick={() => router.push("/subscription")}
               className="w-full h-14 text-lg font-medium bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 shadow-[0_10px_40px_-10px_rgba(124,58,237,0.6)]"
             >
-              Upgrade Plan
+              View Credit Packs
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
 

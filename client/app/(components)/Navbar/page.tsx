@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   LayoutDashboard,
   Video,
@@ -25,14 +25,10 @@ const protectedNavItems = [
   { name: "Subscription", href: "/subscription", icon: IndianRupeeIcon },
 ];
 
-const publicNavItem = [
-  { name: "Home", href: "/", icon: LayoutDashboard },
-];
-
 const Navbar = () => {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const { userId, getToken } = useAuth();
+  const { userId } = useAuth();
 
   return (
     <header className="fixed top-0 left-0 w-full z-50">

@@ -149,8 +149,8 @@ export default function Chat() {
           c.id === finalConversation.id ? finalConversation : c
         )
       );
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);
     }
@@ -167,8 +167,8 @@ export default function Chat() {
      Render
   ----------------------------------- */
   return (
-    <div className="min-h-screen bg-[#0B0B1A] text-white relative overflow-hidden pt-24">
-      <div className="flex min-h-[calc(100vh-6rem)]">
+    <main className="h-dvh bg-[#0B0B1A] pt-24 text-white overflow-hidden">
+      <div className="flex h-full min-h-0">
         {/* ------------------------------
             MOBILE BACKDROP
         ------------------------------ */}
@@ -184,7 +184,7 @@ export default function Chat() {
         ------------------------------ */}
         <div
           className={cn(
-            "fixed left-0 top-24 z-40 h-[calc(100vh-6rem)] w-72 md:w-80 flex flex-col bg-[#0B0B1A] border-r border-white/10 transition-transform duration-300 shadow-[20px_0_60px_-20px_rgba(0,0,0,0.8)]",
+            "fixed left-0 top-24 z-40 h-[calc(100dvh-6rem)] w-72 md:w-80 flex flex-col bg-[#0B0B1A] border-r border-white/10 transition-transform duration-300 shadow-[20px_0_60px_-20px_rgba(0,0,0,0.8)]",
             sidebarOpen ? "translate-x-0" : "-translate-x-full",
             "lg:translate-x-0"
           )}
@@ -242,11 +242,11 @@ export default function Chat() {
         {/* ------------------------------
             MAIN CHAT
         ------------------------------ */}
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-80">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:ml-80">
           {activeConversation ? (
             <>
               {/* Header */}
-              <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3 sticky top-24 bg-[#0B0B1A]/95 backdrop-blur z-30">
+              <div className="z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0B0B1A]/95 px-4 py-3 backdrop-blur">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -259,7 +259,7 @@ export default function Chat() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 space-y-5">
                 <AnimatePresence>
                   {activeConversation.messages.map((m, i) => (
                     <motion.div
@@ -351,7 +351,7 @@ export default function Chat() {
               </div>
 
               {/* Input */}
-              <div className="p-4 border-t border-white/10 flex gap-3 sticky bottom-0 bg-[#0B0B1A]/95 backdrop-blur">
+              <div className="flex shrink-0 gap-3 border-t border-white/10 bg-[#0B0B1A]/95 p-4 backdrop-blur">
                 <Textarea
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
@@ -388,6 +388,6 @@ export default function Chat() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }

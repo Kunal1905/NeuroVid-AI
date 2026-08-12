@@ -19,6 +19,11 @@
 // ── Plan identifier type ────────────────────────────────────
 export type PlanId = "free" | "starter" | "standard" | "pro" | "creator";
 
+// Product-level cap for one submitted generation. Longer wallet balances can
+// be spent across multiple generations; each generation is chained into the
+// vendor-sized calls defined by maxSecondsPerCall below.
+export const MAX_GENERATION_SECONDS = 120;
+
 // ── Tier shape ──────────────────────────────────────────────
 export interface VideoTier {
   planId: PlanId;

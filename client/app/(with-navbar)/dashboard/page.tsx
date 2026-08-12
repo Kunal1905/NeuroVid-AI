@@ -3,10 +3,7 @@
 import { motion } from "framer-motion";
 import {
   Brain,
-  Video,
-  Trophy,
   Flame,
-  Target,
   ChevronRight,
   Play,
   Plus,
@@ -17,13 +14,14 @@ import Link from "next/link";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api";
+import { formatDuration } from "@/lib/plans";
 
 // Define types for stats and videos 
 interface UserStats {
   xp: string;
   level: number;
   streak: string;
-  videos: number;
+  minutesGenerated: number;
   quizzes: number;
   avgScore: string;
 }
@@ -103,7 +101,7 @@ export default function Dashboard() {
             xp: "0",
             level: 1,
             streak: "0 days",
-            videos: 0,
+            minutesGenerated: 0,
             quizzes: 0,
             avgScore: "0%",
           };
@@ -283,8 +281,10 @@ export default function Dashboard() {
               </div>
               <div className="space-y-3 text-sm text-slate-300">
                 <div className="flex items-center justify-between">
-                  <span>Videos created</span>
-                  <span className="text-white font-semibold">{stats?.videos || 0}</span>
+                  <span>Minutes generated</span>
+                  <span className="text-white font-semibold">
+                    {(stats?.minutesGenerated ?? 0).toFixed(1)} min
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Quizzes taken</span>
@@ -352,7 +352,7 @@ export default function Dashboard() {
                       <div className="flex-1">
                         <p className="font-medium text-white mb-1">{video.title}</p>
                         <div className="flex gap-3 text-sm text-slate-400">
-                          <span>{video.duration} min</span>
+                          <span>{formatDuration(video.duration)}</span>
                           <span>{new Date(video.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
