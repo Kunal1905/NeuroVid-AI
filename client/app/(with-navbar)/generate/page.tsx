@@ -12,6 +12,7 @@ import {
   CheckCircle,
   Loader2,
   LayoutDashboard,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -72,7 +73,9 @@ export default function Generate() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPlanLimit, setShowPlanLimit] = useState(false);
 
-  // Brain dominance (unchanged)
+  type SurveyStatus = "checking" | "complete" | "required" | "error";
+  const [surveyStatus, setSurveyStatus] = useState<SurveyStatus>("checking");
+  const [surveyCheckVersion, setSurveyCheckVersion] = useState(0);
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
 
   const selectedTier = plans.find((plan) => plan.planId === selectedPlanId);
@@ -111,26 +114,48 @@ export default function Generate() {
   useEffect(() => {
     const fetchBrainDominance = async () => {
       try {
+        setSurveyStatus("checking");
         const token = await getToken();
-        if (!token) return;
+        if (!token) {
+          setSurveyStatus("error");
+          return;
+        }
 
         const res = await fetch(apiUrl("/api/survey/surveyData"), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.dominantQuadrant) {
-            setBrainDominance(data.dominantQuadrant);
-          }
+        if (!res.ok) {
+          throw new Error(`Survey status request failed (${res.status})`);
         }
+
+        const response = await res.json();
+        const dominantQuadrant =
+          response?.data?.dominantQuadrant ?? response?.dominantQuadrant;
+
+        if (response?.completed && dominantQuadrant) {
+          const learningStyle =
+            dominantQuadrant === "left"
+              ? "analytical"
+              : dominantQuadrant === "right"
+                ? "creative"
+                : dominantQuadrant;
+          setBrainDominance(learningStyle);
+          setSurveyStatus("complete");
+          return;
+        }
+
+        setBrainDominance(null);
+        setSurveyStatus("required");
       } catch (error) {
         console.error("Error fetching brain dominance:", error);
+        setBrainDominance(null);
+        setSurveyStatus("error");
       }
     };
 
     fetchBrainDominance();
-  }, [getToken]);
+  }, [getToken, surveyCheckVersion]);
 
   useEffect(() => {
     const fetchWallet = async () => {
@@ -208,12 +233,15 @@ export default function Generate() {
       if (res.status === 403) {
         const err = await res.json();
         console.log("[generate] submit 403 response", err);
+        if (err?.error === "Brain dominance survey not completed") {
+          setShowModal(false);
+          setIsGenerating(false);
+          setSurveyStatus("required");
+          router.push("/survey?returnTo=/generate");
+          return;
+        }
         setStatus("error");
-        setErrorMsg(
-          err?.error === "Brain dominance survey not completed"
-            ? "Please complete the brain dominance survey before generating videos."
-            : err?.error || "Access denied. Please try again."
-        );
+        setErrorMsg(err?.error || "Access denied. Please try again.");
         setIsGenerating(false);
         return;
       }
@@ -259,6 +287,22 @@ export default function Generate() {
       setErrorMsg("Could not submit generation request. Please try again.");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handlePrimaryAction = () => {
+    if (surveyStatus === "required") {
+      router.push("/survey?returnTo=/generate");
+      return;
+    }
+
+    if (surveyStatus === "error") {
+      setSurveyCheckVersion((version) => version + 1);
+      return;
+    }
+
+    if (surveyStatus === "complete") {
+      void handleSubmit();
     }
   };
 
@@ -472,6 +516,55 @@ export default function Generate() {
             animate={{ opacity: 1, y: 0 }}
             className="lg:col-span-3"
           >
+            {surveyStatus === "required" && (
+              <div
+                role="alert"
+                className="mb-6 flex flex-col gap-4 border-l-4 border-violet-400 bg-violet-500/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-violet-200">
+                    <Brain className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-white">
+                      Complete your learning profile first
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">
+                      You have not completed the learning-style survey yet. We
+                      use it to personalize the script, examples, and visuals in
+                      every generated video.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push("/survey?returnTo=/generate")}
+                  className="shrink-0 bg-violet-600 text-white hover:bg-violet-500"
+                >
+                  Complete survey
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {surveyStatus === "error" && (
+              <div
+                role="alert"
+                className="mb-6 flex items-center justify-between gap-4 border-l-4 border-amber-400 bg-amber-500/10 px-5 py-4"
+              >
+                <p className="text-sm text-amber-100">
+                  We could not verify your survey status. Generation is paused
+                  until the check succeeds.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => setSurveyCheckVersion((version) => version + 1)}
+                  className="shrink-0 border-amber-400/40 text-amber-100"
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+
             <div className="glass-card rounded-3xl p-8 space-y-10">
               {/* TOPIC */}
 
@@ -743,8 +836,13 @@ export default function Generate() {
 
               <Button
                 size="lg"
-                onClick={handleSubmit}
-                disabled={!topic.trim() || isGenerating || !canUseSelectedTier}
+                onClick={handlePrimaryAction}
+                disabled={
+                  isGenerating ||
+                  surveyStatus === "checking" ||
+                  (surveyStatus === "complete" &&
+                    (!topic.trim() || !canUseSelectedTier))
+                }
                 className="
 
                   h-14 w-full
@@ -765,7 +863,22 @@ export default function Generate() {
 
                 "
               >
-                {isGenerating ? (
+                {surveyStatus === "checking" ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Checking Survey...
+                  </>
+                ) : surveyStatus === "required" ? (
+                  <>
+                    <Brain className="w-5 h-5 mr-2" />
+                    Complete Survey to Generate
+                  </>
+                ) : surveyStatus === "error" ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2" />
+                    Retry Survey Check
+                  </>
+                ) : isGenerating ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                     Generating...

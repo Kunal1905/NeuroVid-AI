@@ -297,7 +297,8 @@ export default function BrainDominanceSurveyPage() {
     return;
   }
 
-  router.push("/dashboard");
+  const requestedReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+  router.push(requestedReturnTo === "/generate" ? "/generate" : "/dashboard");
 };
 
 

@@ -54,6 +54,22 @@ export const submitGeneration = async (req: Request, res: Response) => {
     if (!authUserId)
       return res.status(401).json({ error: "Authentication required" });
 
+    // Survey completion is a hard prerequisite. Check it before touching the
+    // queue, free-trial record, or paid credit balance.
+    console.time("submitGeneration:surveySelect");
+    const [survey] = await db
+      .select()
+      .from(brainDominanceSurveys)
+      .where(eq(brainDominanceSurveys.userId, authUserId))
+      .limit(1);
+    console.timeEnd("submitGeneration:surveySelect");
+
+    if (!survey) {
+      return res
+        .status(403)
+        .json({ error: "Brain dominance survey not completed" });
+    }
+
     const queue = generationQueue;
     if (!queue || !redisConnection) {
       console.error("Queue unavailable: missing REDIS_URL or queue instance");
@@ -149,21 +165,6 @@ export const submitGeneration = async (req: Request, res: Response) => {
           creditsRequired: creditsToCharge,
         });
       }
-    }
-
-    // Fetch brain dominance
-    console.time("submitGeneration:surveySelect");
-    const [survey] = await db
-      .select()
-      .from(brainDominanceSurveys)
-      .where(eq(brainDominanceSurveys.userId, authUserId))
-      .limit(1);
-    console.timeEnd("submitGeneration:surveySelect");
-
-    if (!survey) {
-      return res
-        .status(403)
-        .json({ error: "Brain dominance survey not completed" });
     }
 
     // Create new generation with CREATED status
