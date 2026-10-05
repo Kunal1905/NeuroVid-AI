@@ -228,6 +228,16 @@ export default function Generate() {
       }
 
       const data = await res.json();
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMsg(
+          data?.error ||
+            data?.details ||
+            `Generation request failed (${res.status}). Please try again.`,
+        );
+        setIsGenerating(false);
+        return;
+      }
       console.log("[generate] submit success response", data);
 
       if (data.sessionId) {

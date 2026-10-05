@@ -15,7 +15,7 @@ router.use((req, _res, next) => {
 router.get('/me', requireAuthOrTest, ensureUserExists, getUser);
 
 // Protected: Get user stats
-router.get('/stats', requireAuthOrTest, getUserStats);
+router.get('/stats', requireAuthOrTest, ensureUserExists, getUserStats);
 
 // Create/update user on first login (call from client post-signup)
 router.post('/create', requireAuthTokenOrTest_DEBUG, createOrUpdateUser);

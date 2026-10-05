@@ -72,7 +72,9 @@ export default function Dashboard() {
           if (!res.ok) {
             const errorData = await res.json().catch(() => ({}));
             console.error("Sync failed:", res.status, errorData);
-            throw new Error(`Failed to sync user: ${res.statusText}`);
+            throw new Error(
+              errorData.error || `Failed to sync user (${res.status})`,
+            );
           }
         } catch (err) {
           console.error("Error syncing user:", err);

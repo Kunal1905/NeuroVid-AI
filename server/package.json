@@ -6,11 +6,12 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/scripts/ensureDatabaseSchema.js && node dist/index.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node --log-error' src/index.ts",
     "worker": "tsx watch src/workers/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:ensure": "npm run build && node dist/scripts/ensureDatabaseSchema.js",
     "db:studio": "drizzle-kit studio"
   },
   "keywords": [],

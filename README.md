@@ -119,8 +119,12 @@ NEXT_PUBLIC_RAZORPAY_KEY_ID=your_razorpay_key
 ### 5) Database Migrations
 From `server/`:
 ```
-npm run db:migrate
+npm run db:ensure
 ```
+
+The production server also runs the idempotent schema check before startup, so
+existing databases created before the credit-wallet tables were introduced are
+upgraded without rerunning the original baseline migration.
 
 ### 6) Run the App
 Open three terminals:
