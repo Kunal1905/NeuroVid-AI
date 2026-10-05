@@ -98,6 +98,12 @@ CLERK_SECRET_KEY=your_clerk_secret
 CLERK_PUBLISHABLE_KEY=your_clerk_publishable
 
 GOOGLE_API_KEY=your_gemini_api_key
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-3.5-flash-lite
+LLM_FALLBACK_MODEL=gemini-3.1-flash-lite
+
+# Keep this false to prevent any automatic Groq usage or charges.
+ALLOW_GROQ_FALLBACK=false
 
 MINIMAX_API_KEY=your_minimax_api_key
 MINIMAX_GROUP_ID=your_minimax_group_id_optional

@@ -5,14 +5,43 @@ const API_KEY = process.env.GOOGLE_API_KEY || process.env.GOOGLE_API || "";
 
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
-const PRIMARY_MODEL = process.env.LLM_MODEL || "gemini-2.5-flash";
-// Use a known v1beta-supported model as fallback
-const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "gemini-2.0-flash";
+const PRIMARY_MODEL = process.env.LLM_MODEL || "gemini-3.5-flash-lite";
+const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL || "gemini-3.1-flash-lite";
 const MAX_RETRIES = Number(process.env.LLM_MAX_RETRIES || 3);
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 30000);
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-const LLM_PROVIDER = (process.env.LLM_PROVIDER || "groq").toLowerCase();
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+const RETIRED_GROQ_MODELS = new Set([
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+]);
+const configuredGroqModel = process.env.GROQ_MODEL?.trim();
+const GROQ_MODEL = RETIRED_GROQ_MODELS.has(configuredGroqModel || "")
+  ? DEFAULT_GROQ_MODEL
+  : configuredGroqModel || DEFAULT_GROQ_MODEL;
+const LLM_PROVIDER = (process.env.LLM_PROVIDER || "gemini").toLowerCase();
+const ALLOW_GROQ_FALLBACK = process.env.ALLOW_GROQ_FALLBACK === "true";
+
+if (configuredGroqModel && RETIRED_GROQ_MODELS.has(configuredGroqModel)) {
+  console.warn(
+    `[LLM] GROQ_MODEL=${configuredGroqModel} is retired; using ${DEFAULT_GROQ_MODEL} instead.`,
+  );
+}
+
+export class LlmProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "LlmProviderError";
+  }
+}
+
+export const isRetryableLlmError = (error: unknown): boolean => {
+  if (!(error instanceof LlmProviderError)) return true;
+  return [429, 500, 502, 503, 504].includes(error.status);
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,7 +155,10 @@ const groqChatCompletion = async (
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     console.error(`${ctxLabel} Groq API Error:`, response.status, text);
-    throw new Error(`Groq error: ${response.status}`);
+    throw new LlmProviderError(
+      `Groq request failed (${response.status}): ${text || "No error details returned"}`,
+      response.status,
+    );
   }
 
   const data = await response.json() as {
@@ -158,20 +190,25 @@ export default async function llmService(
       console.log(`${ctxLabel} Using Groq as primary provider`);
       return await groqChatCompletion(prompt, context);
     }
-    console.log(
-      `${ctxLabel} LLM_PROVIDER=groq but GROQ_API_KEY is missing, falling back to Gemini`,
+    throw new Error(
+      "LLM_PROVIDER=groq but GROQ_API_KEY is missing. Set LLM_PROVIDER=gemini to use Gemini instead.",
     );
   }
+
+  if (LLM_PROVIDER !== "gemini") {
+    throw new Error(
+      `Unsupported LLM_PROVIDER=${LLM_PROVIDER}. Use gemini or groq.`,
+    );
+  }
+
   if (!genAI) {
-    if (GROQ_API_KEY) {
+    if (ALLOW_GROQ_FALLBACK && GROQ_API_KEY) {
       console.log(
-        `${ctxLabel} Google key missing, using Groq fallback`,
+        `${ctxLabel} Google key missing, using explicit Groq fallback`,
       );
       return await groqChatCompletion(prompt, context);
     }
-    throw new Error(
-      "LLM unavailable: missing GOOGLE_API_KEY and missing GROQ_API_KEY",
-    );
+    throw new Error("Gemini unavailable: missing GOOGLE_API_KEY");
   }
   try {
     const models = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
@@ -214,10 +251,12 @@ export default async function llmService(
             );
             break;
           }
-          if (isQuotaExceeded(err) && GROQ_API_KEY) {
+          if (isQuotaExceeded(err)) {
             sawQuotaExceeded = true;
             console.log(
-              `${ctxLabel} Gemini quota exceeded and Groq is configured, switching to Groq immediately`,
+              ALLOW_GROQ_FALLBACK && GROQ_API_KEY
+                ? `${ctxLabel} Gemini quota exceeded, using explicit Groq fallback`
+                : `${ctxLabel} Gemini quota exceeded; Groq fallback is disabled`,
             );
             break;
           }
@@ -240,27 +279,21 @@ export default async function llmService(
       }
     }
 
-    if (GROQ_API_KEY) {
+    if (ALLOW_GROQ_FALLBACK && GROQ_API_KEY) {
       console.log(
-        `${ctxLabel} Gemini exhausted. Falling back to Groq model=${GROQ_MODEL}`,
+        `${ctxLabel} Gemini exhausted. Using explicit Groq fallback model=${GROQ_MODEL}`,
       );
       return await groqChatCompletion(prompt, context);
     }
 
     if (sawInvalidGoogleKey) {
-      throw new Error(
-        "Gemini API key is invalid or expired, and GROQ_API_KEY is not configured",
-      );
+      throw new Error("Gemini API key is invalid or expired");
     }
     if (sawQuotaExceeded) {
-      throw new Error(
-        "Gemini quota exceeded and GROQ_API_KEY is not configured",
-      );
+      throw new Error("Gemini quota exceeded");
     }
 
-    throw new Error(
-      "LLM error: all retries exhausted and GROQ_API_KEY is not configured",
-    );
+    throw new Error("Gemini error: all retries exhausted");
   } catch (err: any) {
     throw new Error(`LLM error: ${err?.message || "unknown error"}`);
   }

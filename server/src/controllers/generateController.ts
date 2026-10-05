@@ -216,6 +216,21 @@ export const submitGeneration = async (req: Request, res: Response) => {
     // Fire-and-forget background work to avoid blocking response
     (async () => {
       try {
+        // Persist the queued state before adding the job. BullMQ can start a
+        // worker immediately after queue.add(), so doing this afterwards can
+        // incorrectly move a live job's progress backwards from 20% to 10%.
+        console.time("submitGeneration:updateQueued");
+        await db
+          .update(generations)
+          .set({
+            status: "QUEUED",
+            progress: 10,
+            updatedAt: new Date(),
+          })
+          .where(eq(generations.sessionId, sessionId));
+        console.timeEnd("submitGeneration:updateQueued");
+        console.log("✅ Status updated to QUEUED", { sessionId });
+
         const job = await Promise.race([
           queue.add(
             "generation-job",
@@ -239,22 +254,6 @@ export const submitGeneration = async (req: Request, res: Response) => {
         console.log("✅ Job enqueued", (job as any)?.id, { sessionId, priority: priorityForTier(chosenTier) });
       } catch (queueError) {
         console.error("Queue operation failed:", queueError, { sessionId });
-      }
-
-      try {
-        console.time("submitGeneration:updateQueued");
-        await db
-          .update(generations)
-          .set({
-            status: "QUEUED",
-            progress: 10,
-            updatedAt: new Date(),
-          })
-          .where(eq(generations.sessionId, sessionId));
-        console.timeEnd("submitGeneration:updateQueued");
-        console.log("✅ Status updated to QUEUED", { sessionId });
-      } catch (updateError) {
-        console.error("Failed to update status to QUEUED:", updateError);
       }
     })();
 

@@ -1,9 +1,13 @@
-import { Worker, Job } from "bullmq";
+import { Worker, Job, UnrecoverableError } from "bullmq";
 import { redisForBull } from "../config/redis";
 import { db } from "../services/db";
 import { generations } from "../models/generate";
 import { eq } from "drizzle-orm";
-import llmService from "../services/llm.service";
+import {
+  isRetryableLlmError,
+  LlmProviderError,
+  default as llmService,
+} from "../services/llm.service";
 import { hailuoService } from "../services/hailuo.service";
 import { stitchClips } from "../services/Videostitch.service";
 import { refundCredits } from "../services/wallet.service";
@@ -110,7 +114,7 @@ class GenerationWorker {
       }
 
       console.log(
-        `📋 Processing generation: ${generation.topic} (${generation.duration}min)`,
+        `📋 Processing generation: ${generation.topic} (${generation.duration}s)`,
       );
 
       // Stage 1: Generate Script
@@ -193,7 +197,10 @@ class GenerationWorker {
       // attempts, leave the DB status alone (it'll either succeed on
       // retry or hit this branch again with attemptsMade at the limit).
       const maxAttempts = job.opts.attempts ?? 1;
-      const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
+      const isUnrecoverableLlmError =
+        error instanceof LlmProviderError && !isRetryableLlmError(error);
+      const isFinalAttempt =
+        isUnrecoverableLlmError || job.attemptsMade + 1 >= maxAttempts;
 
       if (isFinalAttempt) {
         await this.handleError(sessionId, error as Error, job.data);
@@ -201,6 +208,10 @@ class GenerationWorker {
         console.log(
           `🔁 Job ${job.id} failed on attempt ${job.attemptsMade + 1}/${maxAttempts}, will retry — no refund issued yet`,
         );
+      }
+
+      if (isUnrecoverableLlmError) {
+        throw new UnrecoverableError(error.message);
       }
 
       throw error; // Re-throw to trigger job retry (or final failure if isFinalAttempt)
@@ -292,7 +303,7 @@ Return STRICT JSON in this format:
 
 Topic: ${generation.topic}
 Details: ${generation.details}
-Duration: ${generation.duration} minutes
+Duration: ${generation.duration} seconds
 Language: ${generation.language}
 Teaching Style: ${aiStyle}
 
@@ -323,6 +334,9 @@ Rules:
       return script;
     } catch (error) {
       console.error("Error generating script:", error);
+      if (error instanceof LlmProviderError) {
+        throw error;
+      }
       throw new Error(`Script generation failed: ${(error as Error).message}`);
     }
   }
