@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { Play, CheckCircle, XCircle } from "lucide-react";
 import Navbar from "../Navbar/page";
@@ -362,17 +362,19 @@ function VideoResultContent() {
 
 export default function VideoResult() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-[#0B0B1A] text-white">
-          <Navbar />
-          <div className="pt-28 px-6 text-center text-slate-300">
-            Loading...
+    <ClerkProvider>
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#0B0B1A] text-white">
+            <Navbar />
+            <div className="pt-28 px-6 text-center text-slate-300">
+              Loading...
+            </div>
           </div>
-        </div>
-      }
-    >
-      <VideoResultContent />
-    </Suspense>
+        }
+      >
+        <VideoResultContent />
+      </Suspense>
+    </ClerkProvider>
   );
 }

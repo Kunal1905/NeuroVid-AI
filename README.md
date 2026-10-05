@@ -160,7 +160,7 @@ The app will be available at `http://localhost:3000` and the API at `http://loca
 1. Sign up or log in.
 2. Complete the brain-dominance survey for personalization.
 3. Enter a topic and submit a generation request.
-4. If video generation is enabled, the backend checks free-trial eligibility or reserves credits. Otherwise the lesson is free content-only mode.
+4. If video generation is enabled, the backend checks free-trial eligibility or reserves video seconds from the wallet. Otherwise it creates a script-and-quiz-only session with no video seconds to charge.
 5. The worker generates a script and quiz. With `MINIMAX_API_KEY` configured, it also generates MiniMax H3 clips, stitches them, and stores the final video URL.
 6. Track progress and view the resulting lesson or final video.
 

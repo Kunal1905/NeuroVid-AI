@@ -448,30 +448,31 @@ export default function Generate() {
               ? "Create a personalized lesson script and quiz for your learning style"
               : "Create AI-powered educational videos tailored to your learning style"}
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300">
-            {contentOnlyMode
-              ? "Script + quiz mode:"
-              : selectedTier?.isFreeTrial && !freeTrialUsed
-              ? "One-time free trial:"
-              : "Credit balance:"}
-            <span className={`flex items-center gap-1 font-semibold ${
-              !contentOnlyMode && (needsCredits ||
-              (!selectedTier?.isFreeTrial && remainingCredits === 0)
-              )
-                ? "text-red-400"
-                : "text-violet-300"
-            }`}>
-              {contentOnlyMode
-                ? "No video credits used"
-                : selectedTier?.isFreeTrial && !freeTrialUsed
-                ? formatDuration(selectedTier.totalSeconds)
-                : formatDuration(remainingCredits)}
-              {!contentOnlyMode && (needsCredits ||
-                (!selectedTier?.isFreeTrial && remainingCredits === 0)) && (
-                <AlertTriangle className="w-4 h-4 text-red-400" />
-              )}
-            </span>
-          </div>
+          {contentOnlyMode ? (
+            <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-violet-300">
+              Script + quiz mode
+            </div>
+          ) : (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300">
+              {selectedTier?.isFreeTrial && !freeTrialUsed
+                ? "One-time free trial:"
+                : "Credit balance:"}
+              <span className={`flex items-center gap-1 font-semibold ${
+                needsCredits ||
+                (!selectedTier?.isFreeTrial && remainingCredits === 0)
+                  ? "text-red-400"
+                  : "text-violet-300"
+              }`}>
+                {selectedTier?.isFreeTrial && !freeTrialUsed
+                  ? formatDuration(selectedTier.totalSeconds)
+                  : formatDuration(remainingCredits)}
+                {(needsCredits ||
+                  (!selectedTier?.isFreeTrial && remainingCredits === 0)) && (
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                )}
+              </span>
+            </div>
+          )}
         </motion.div>
 
         <div className="grid lg:grid-cols-4 gap-8">
@@ -517,7 +518,7 @@ export default function Generate() {
                   <span className="text-muted-foreground">Cost</span>
                   <span className="font-medium text-white">
                     {contentOnlyMode
-                      ? "No video credits"
+                      ? "Video unavailable"
                       : selectedTier?.isFreeTrial && !freeTrialUsed
                       ? "Free trial"
                       : needsCredits
@@ -528,7 +529,7 @@ export default function Generate() {
 
                 <div className="border-t border-gray-800 pt-4 text-xs leading-5 text-gray-400">
                   {contentOnlyMode
-                    ? "Video generation is disabled because no video provider is configured. Your script and quiz are generated without using your trial or wallet."
+                    ? "Video generation is unavailable because no video provider is configured. This session contains a script and quiz only."
                     : needsCredits
                     ? "Your one-time free trial has been used. Buy credits to generate another video."
                     : `One credit generates one second of video. A single generation can use up to ${formatDuration(maxDuration)} from this pack.`}
@@ -609,7 +610,7 @@ export default function Generate() {
               >
                 <Brain className="mt-0.5 h-5 w-5 shrink-0 text-violet-300" />
                 <p className="text-sm leading-6 text-violet-100">
-                  Script + quiz mode is active. Video generation is unavailable, so this lesson will not use credits or your free trial.
+                  Script + quiz mode is active. Video generation is unavailable, so this lesson contains a personalized script and quiz only.
                 </p>
               </div>
             )}
