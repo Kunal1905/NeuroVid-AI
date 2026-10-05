@@ -6,7 +6,8 @@ const envSchema = z.object({
   PORT: z.string().optional(),
   CLIENT_ORIGIN: z.string().url(),
   REDIS_URL: z.string().url(),
-  MINIMAX_API_KEY: z.string(),
+  // Optional: without this key, the app runs in script-and-quiz-only mode.
+  MINIMAX_API_KEY: z.string().optional(),
   MINIMAX_GROUP_ID: z.string().optional(),
 });
 

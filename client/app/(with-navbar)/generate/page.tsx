@@ -60,6 +60,8 @@ export default function Generate() {
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("free");
   const [remainingCredits, setRemainingCredits] = useState(0);
   const [freeTrialUsed, setFreeTrialUsed] = useState<boolean | null>(null);
+  const [videoGenerationEnabled, setVideoGenerationEnabled] = useState<boolean | null>(null);
+  const [contentOnlySession, setContentOnlySession] = useState(false);
 
   // Video generation flow (only added what's needed)
   const [showModal, setShowModal] = useState(false);
@@ -80,27 +82,33 @@ export default function Generate() {
   const [brainDominance, setBrainDominance] = useState<string | null>(null);
 
   const selectedTier = plans.find((plan) => plan.planId === selectedPlanId);
-  const availableSeconds = selectedTier
+  const contentOnlyMode = videoGenerationEnabled === false;
+  const availableSeconds = contentOnlyMode
+    ? 60
+    : selectedTier
     ? selectedTier.isFreeTrial
       ? freeTrialUsed
         ? 0
         : selectedTier.totalSeconds
       : Math.min(selectedTier.totalSeconds, remainingCredits)
     : 0;
-  const maxDuration = selectedTier
+  const maxDuration = contentOnlyMode
+    ? 60
+    : selectedTier
     ? Math.max(
         1,
         Math.min(selectedTier.maxGenerationSeconds, availableSeconds),
       )
     : 1;
   const canUseSelectedTier = Boolean(
-    selectedTier &&
-      (selectedTier.isFreeTrial
+    contentOnlyMode ||
+      (selectedTier &&
+        (selectedTier.isFreeTrial
         ? !freeTrialUsed
-        : remainingCredits >= duration[0]),
+        : remainingCredits >= duration[0])),
   );
   const needsCredits = Boolean(
-    freeTrialUsed && remainingCredits === 0,
+    !contentOnlyMode && freeTrialUsed && remainingCredits === 0,
   );
 
   useEffect(() => {
@@ -179,6 +187,7 @@ export default function Generate() {
         setSelectedPlanId(accountPlan);
         setRemainingCredits(Math.max(0, Number(data.remainingCredits) || 0));
         setFreeTrialUsed(Boolean(data.freeTrialUsed));
+        setVideoGenerationEnabled(data.videoGenerationEnabled !== false);
       } catch (error) {
         console.error("Error fetching wallet:", error);
       }
@@ -285,6 +294,7 @@ export default function Generate() {
 
       if (data.sessionId) {
         setSessionId(data.sessionId);
+        setContentOnlySession(Boolean(data.contentOnly));
         if (!data.isFreeTrial && typeof data.creditsCharged === "number") {
           setRemainingCredits((credits) =>
             Math.max(0, credits - data.creditsCharged),
@@ -412,6 +422,7 @@ export default function Generate() {
     setStatus("idle");
     setErrorMsg(null);
     setLlmBusy(false);
+    setContentOnlySession(false);
   };
 
   return (
@@ -429,26 +440,33 @@ export default function Generate() {
           </div>
 
           <h1 className="text-3xl font-bold text-foreground mb-2">
-            Generate Learning Video
+            {contentOnlyMode ? "Generate Learning Content" : "Generate Learning Video"}
           </h1>
 
           <p className="text-muted-foreground">
-            Create AI-powered educational videos tailored to your learning style
+            {contentOnlyMode
+              ? "Create a personalized lesson script and quiz for your learning style"
+              : "Create AI-powered educational videos tailored to your learning style"}
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300">
-            {selectedTier?.isFreeTrial && !freeTrialUsed
+            {contentOnlyMode
+              ? "Script + quiz mode:"
+              : selectedTier?.isFreeTrial && !freeTrialUsed
               ? "One-time free trial:"
               : "Credit balance:"}
             <span className={`flex items-center gap-1 font-semibold ${
-              needsCredits ||
+              !contentOnlyMode && (needsCredits ||
               (!selectedTier?.isFreeTrial && remainingCredits === 0)
+              )
                 ? "text-red-400"
                 : "text-violet-300"
             }`}>
-              {selectedTier?.isFreeTrial && !freeTrialUsed
+              {contentOnlyMode
+                ? "No video credits used"
+                : selectedTier?.isFreeTrial && !freeTrialUsed
                 ? formatDuration(selectedTier.totalSeconds)
                 : formatDuration(remainingCredits)}
-              {(needsCredits ||
+              {!contentOnlyMode && (needsCredits ||
                 (!selectedTier?.isFreeTrial && remainingCredits === 0)) && (
                 <AlertTriangle className="w-4 h-4 text-red-400" />
               )}
@@ -468,7 +486,9 @@ export default function Generate() {
               <div className="flex items-center gap-3 mb-4">
                 <Clock className="w-5 h-5 text-violet-400" />
 
-                <h3 className="font-semibold text-lg">Video Duration</h3>
+                <h3 className="font-semibold text-lg">
+                  {contentOnlyMode ? "Lesson Length" : "Video Duration"}
+                </h3>
               </div>
 
               <div className="space-y-4 text-sm">
@@ -481,9 +501,13 @@ export default function Generate() {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Active pack</span>
+                  <span className="text-muted-foreground">
+                    {contentOnlyMode ? "Delivery" : "Active pack"}
+                  </span>
                   <span className="font-medium text-white">
-                    {selectedTier?.isFreeTrial && freeTrialUsed
+                    {contentOnlyMode
+                      ? "Script and quiz"
+                      : selectedTier?.isFreeTrial && freeTrialUsed
                       ? "Trial used"
                       : selectedTier?.label ?? "Loading..."}
                   </span>
@@ -492,7 +516,9 @@ export default function Generate() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Cost</span>
                   <span className="font-medium text-white">
-                    {selectedTier?.isFreeTrial && !freeTrialUsed
+                    {contentOnlyMode
+                      ? "No video credits"
+                      : selectedTier?.isFreeTrial && !freeTrialUsed
                       ? "Free trial"
                       : needsCredits
                         ? "Buy credits"
@@ -501,7 +527,9 @@ export default function Generate() {
                 </div>
 
                 <div className="border-t border-gray-800 pt-4 text-xs leading-5 text-gray-400">
-                  {needsCredits
+                  {contentOnlyMode
+                    ? "Video generation is disabled because no video provider is configured. Your script and quiz are generated without using your trial or wallet."
+                    : needsCredits
                     ? "Your one-time free trial has been used. Buy credits to generate another video."
                     : `One credit generates one second of video. A single generation can use up to ${formatDuration(maxDuration)} from this pack.`}
                 </div>
@@ -571,6 +599,18 @@ export default function Generate() {
                   View credit packs
                   <ArrowRight className="h-4 w-4" />
                 </Button>
+              </div>
+            )}
+
+            {contentOnlyMode && surveyStatus === "complete" && (
+              <div
+                role="status"
+                className="mb-6 flex items-start gap-3 border-l-4 border-violet-400 bg-violet-500/10 px-5 py-4"
+              >
+                <Brain className="mt-0.5 h-5 w-5 shrink-0 text-violet-300" />
+                <p className="text-sm leading-6 text-violet-100">
+                  Script + quiz mode is active. Video generation is unavailable, so this lesson will not use credits or your free trial.
+                </p>
               </div>
             )}
 
@@ -752,7 +792,7 @@ export default function Generate() {
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Video duration</Label>
+                  <Label>{contentOnlyMode ? "Lesson length" : "Video duration"}</Label>
 
                   <span className="text-violet-400 font-semibold">
                     {formatDuration(duration[0])}
@@ -765,7 +805,7 @@ export default function Generate() {
                   min={1}
                   max={maxDuration}
                   step={1}
-                  disabled={!selectedTier || availableSeconds === 0}
+                  disabled={!contentOnlyMode && (!selectedTier || availableSeconds === 0)}
                   className="bg-gray-800/50 border border-gray-600 rounded-full h-3"
                 />
 
@@ -774,9 +814,9 @@ export default function Generate() {
                   <span>{formatDuration(maxDuration)} max</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Raw seconds are charged from your wallet when the request is
-                  accepted. The server may split the video into shorter clips
-                  before stitching it together.
+                  {contentOnlyMode
+                    ? "This is a lesson-length hint for the script. No video is created and no credits are charged."
+                    : "Raw seconds are charged from your wallet when the request is accepted. The server may split the video into shorter clips before stitching it together."}
                 </p>
               </div>
 
@@ -950,7 +990,7 @@ export default function Generate() {
                 ) : (
                   <>
                     <Zap className="w-5 h-5 mr-2" />
-                    Generate Video
+                    {contentOnlyMode ? "Generate Script & Quiz" : "Generate Video"}
                   </>
                 )}
               </Button>
@@ -981,11 +1021,15 @@ export default function Generate() {
                 </div>
 
                 <h3 className="text-2xl font-bold text-white mb-2">
-                  Creating Your Video
+                  {contentOnlySession || contentOnlyMode
+                    ? "Creating Your Lesson"
+                    : "Creating Your Video"}
                 </h3>
 
                 <p className="text-gray-400 mb-6">
-                  Processing your content and generating personalized video...
+                  {contentOnlySession || contentOnlyMode
+                    ? "Creating your personalized script and quiz..."
+                    : "Processing your content and generating personalized video..."}
                 </p>
 
                 {/* Countdown removed per request */}
@@ -1054,13 +1098,15 @@ export default function Generate() {
                       ) : (
                         <div className="w-4 h-4" />
                       )}
-                      <span>{progress >= 60 ? "Video created" : "Creating slides and visuals..."}</span>
+                      <span>{contentOnlySession || contentOnlyMode
+                        ? progress >= 60 ? "Lesson ready" : "Preparing your lesson..."
+                        : progress >= 60 ? "Video created" : "Creating slides and visuals..."}</span>
                     </div>
 
                     {progress >= 90 && progress < 100 && (
                       <div className="flex items-center gap-3 text-sm text-violet-400">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Saving your video...</span>
+                        <span>Saving your learning content...</span>
                       </div>
                     )}
                   </div>
@@ -1087,8 +1133,9 @@ export default function Generate() {
                     </h4>
 
                     <p className="text-gray-400 text-sm mb-6">
-                      {errorMsg ||
-                        "Something went wrong while generating your video. This could be due to a temporary issue with our AI service."}
+                      {errorMsg || (contentOnlySession || contentOnlyMode
+                          ? "Something went wrong while generating your learning content. Please try again."
+                          : "Something went wrong while generating your video. This could be due to a temporary issue with our AI service.")}
                     </p>
 
                     <div className="flex gap-3">
@@ -1146,7 +1193,9 @@ export default function Generate() {
                     <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-4" />
 
                     <p className="text-green-400 font-medium mb-6">
-                      Video generation complete!
+                      {contentOnlySession || contentOnlyMode
+                        ? "Your script and quiz are ready!"
+                        : "Video generation complete!"}
                     </p>
                     {errorMsg && (
                       <p className="text-red-400 text-sm mb-4">{errorMsg}</p>
@@ -1166,7 +1215,9 @@ export default function Generate() {
                         onClick={handleViewVideo}
                         disabled={!videoUrl && status !== "completed"}
                       >
-                        View Video
+                        {contentOnlySession || contentOnlyMode
+                          ? "View Lesson"
+                          : "View Video"}
                       </Button>
                     </div>
                   </div>

@@ -6,6 +6,7 @@ import { generations } from "../models/generate"; // ← make sure this matches 
 import { brainDominanceSurveys } from "../models/survey";
 import { generationQueue, priorityForTier } from "../queues/generation.queue";
 import { redisConnection } from "../config/redis";
+import { hailuoService } from "../services/hailuo.service";
 import {
   MAX_GENERATION_SECONDS,
   VIDEO_TIERS,
@@ -70,6 +71,12 @@ export const submitGeneration = async (req: Request, res: Response) => {
         .json({ error: "Brain dominance survey not completed" });
     }
 
+    // When no video provider is configured, still create a useful learning
+    // session: Gemini generates the script and quiz, while the worker skips
+    // the paid video stage. Do not spend credits or redeem the one-time trial
+    // for a session that cannot deliver a video.
+    const shouldGenerateVideo = hailuoService.isConfigured();
+
     const queue = generationQueue;
     if (!queue || !redisConnection) {
       console.error("Queue unavailable: missing REDIS_URL or queue instance");
@@ -114,56 +121,64 @@ export const submitGeneration = async (req: Request, res: Response) => {
       Math.min(Number(duration) || 8, MAX_GENERATION_SECONDS),
     );
 
-    const fingerprint = (req.body.deviceFingerprint as string) || "";
-    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
-    const fingerprintHash = hashFingerprint(fingerprint, ip);
-
-    const alreadyUsedFreeTrial = await hasUsedFreeTrial(fingerprintHash);
-
     let chosenTier: PlanId;
     let chosenSeconds = requestedSeconds;
     let creditsToCharge = 0;
     let isFreeTrial = false;
+    let fingerprintHash = "";
+    let ip = "";
 
-    if (!alreadyUsedFreeTrial) {
+    if (!shouldGenerateVideo) {
+      // Keep free text generation bounded even if a client submits a larger
+      // duration. This is a lesson-length hint for the LLM, not video credit.
+      chosenTier = "free";
+      chosenSeconds = Math.min(requestedSeconds, 60);
+    } else {
+      const fingerprint = (req.body.deviceFingerprint as string) || "";
+      ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      fingerprintHash = hashFingerprint(fingerprint, ip);
+      const alreadyUsedFreeTrial = await hasUsedFreeTrial(fingerprintHash);
+
+      if (!alreadyUsedFreeTrial) {
       // First-ever video for this device+IP — free tier, hard-capped at 10s.
       // This is the ONLY path that bypasses the credit balance check.
-      chosenTier = "free";
-      chosenSeconds = Math.min(requestedSeconds, VIDEO_TIERS.free.totalSeconds);
-      creditsToCharge = 0;
-      isFreeTrial = true;
-    } else {
-      // Paid path. All tiers route to the same model (Hailuo-2.3-Fast) —
+        chosenTier = "free";
+        chosenSeconds = Math.min(requestedSeconds, VIDEO_TIERS.free.totalSeconds);
+        creditsToCharge = 0;
+        isFreeTrial = true;
+      } else {
+      // Paid path. All tiers route to the same video model (MiniMax H3) —
       // the only thing that differs between Starter/Standard/Pro/Creator is
       // how many seconds the purchase unlocked, not video quality. Credits
       // and seconds are 1:1 under this pricing model, so creditsToCharge
       // IS the seconds requested — no per-tier rate lookup needed.
-      const requestedPlan = (req.body.planId as PlanId) || "starter";
-      if (requestedPlan === "free") {
-        return res.status(402).json({
-          error: "Free trial already used. Purchase a credit pack to continue.",
-        });
-      }
-      if (!VIDEO_TIERS[requestedPlan]) {
-        return res.status(400).json({ error: "Invalid planId" });
-      }
-      chosenTier = requestedPlan;
-      const tier = VIDEO_TIERS[chosenTier];
-      chosenSeconds = Math.min(requestedSeconds, tier.totalSeconds);
-      creditsToCharge = chosenSeconds; // 1 credit = 1 second, see models/user.ts
+        const requestedPlan = (req.body.planId as PlanId) || "starter";
+        if (requestedPlan === "free") {
+          return res.status(402).json({
+            error: "Free trial already used. Purchase a credit pack to continue.",
+          });
+        }
+        if (!VIDEO_TIERS[requestedPlan]) {
+          return res.status(400).json({ error: "Invalid planId" });
+        }
+        chosenTier = requestedPlan;
+        const tier = VIDEO_TIERS[chosenTier];
+        chosenSeconds = Math.min(requestedSeconds, tier.totalSeconds);
+        creditsToCharge = chosenSeconds; // 1 credit = 1 second, see models/user.ts
 
-      const reservation = await reserveCreditsForGeneration({
-        clerkUserId: authUserId,
-        creditsNeeded: creditsToCharge,
-        sessionId: "pending", // session not created yet; logged again after insert below
-      });
-
-      if (!reservation.ok) {
-        return res.status(402).json({
-          error: "Insufficient credits",
-          reason: (reservation as { ok: false; reason: string }).reason,
-          creditsRequired: creditsToCharge,
+        const reservation = await reserveCreditsForGeneration({
+          clerkUserId: authUserId,
+          creditsNeeded: creditsToCharge,
+          sessionId: "pending", // session not created yet; logged again after insert below
         });
+
+        if (!reservation.ok) {
+          return res.status(402).json({
+            error: "Insufficient credits",
+            reason: (reservation as { ok: false; reason: string }).reason,
+            creditsRequired: creditsToCharge,
+          });
+        }
       }
     }
 
@@ -181,7 +196,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
         style: survey.dominantQuadrant,
         status: "CREATED",
         progress: 0,
-        routedModel: "hailuo-2.3-fast", // all tiers use the same model now; tier only governs total seconds
+        routedModel: shouldGenerateVideo ? "minimax-h3" : "gemini-script-quiz",
         creditsCharged: creditsToCharge,
         isFreeTrial: isFreeTrial ? 1 : 0,
       })
@@ -210,6 +225,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
       tier: chosenTier,
       creditsCharged: creditsToCharge,
       secondsGenerated: chosenSeconds,
+      contentOnly: !shouldGenerateVideo,
     });
     console.timeEnd("submitGeneration:total");
 
@@ -240,6 +256,7 @@ export const submitGeneration = async (req: Request, res: Response) => {
               secondsRequested: chosenSeconds,
               creditsCharged: creditsToCharge,
               isFreeTrial,
+              generateVideo: shouldGenerateVideo,
             },
             {
               attempts: 3,

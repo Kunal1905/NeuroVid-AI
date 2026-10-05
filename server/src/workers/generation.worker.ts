@@ -8,7 +8,10 @@ import {
   LlmProviderError,
   default as llmService,
 } from "../services/llm.service";
-import { hailuoService } from "../services/hailuo.service";
+import {
+  hailuoService,
+  VideoProviderConfigurationError,
+} from "../services/hailuo.service";
 import { stitchClips } from "../services/Videostitch.service";
 import { refundCredits } from "../services/wallet.service";
 import { chainPlan, VIDEO_TIERS, type PlanId } from "../config/VideoTiers";
@@ -19,6 +22,7 @@ interface GenerationJobData {
   secondsRequested: number;
   creditsCharged: number;
   isFreeTrial: boolean;
+  generateVideo?: boolean;
 }
 
 interface GenerationRecord {
@@ -156,17 +160,22 @@ class GenerationWorker {
         console.timeEnd(`job:${job.id}:generateQuiz`);
       }
 
-      // Stage 3: Generate Video
-      console.time(`job:${job.id}:generateVideo`);
-      let videoUrl: string;
-      try {
-        await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
-        console.log(`🎬 Starting video generation...`);
-        videoUrl = await this.generateVideo(script, sessionId, job.data.secondsRequested);
-      } finally {
-        console.timeEnd(`job:${job.id}:generateVideo`);
+      // Stage 3: Generate Video only when a paid provider is configured.
+      // Script-and-quiz jobs intentionally complete without a video URL.
+      let videoUrl: string | undefined;
+      if (job.data.generateVideo ?? hailuoService.isConfigured()) {
+        console.time(`job:${job.id}:generateVideo`);
+        try {
+          await this.updateStatus(sessionId, "GENERATING_VIDEO", 60);
+          console.log(`🎬 Starting video generation...`);
+          videoUrl = await this.generateVideo(script, sessionId, job.data.secondsRequested);
+        } finally {
+          console.timeEnd(`job:${job.id}:generateVideo`);
+        }
+        console.log(`✅ Video generated successfully for session: ${sessionId}`);
+      } else {
+        console.log(`📝 Completing script-and-quiz session without video: ${sessionId}`);
       }
-      console.log(`✅ Video generated successfully for session: ${sessionId}`);
 
       // Stage 4: Complete Generation
       console.time(`job:${job.id}:saveResults`);
@@ -199,8 +208,12 @@ class GenerationWorker {
       const maxAttempts = job.opts.attempts ?? 1;
       const isUnrecoverableLlmError =
         error instanceof LlmProviderError && !isRetryableLlmError(error);
+      const isUnrecoverableVideoProviderError =
+        error instanceof VideoProviderConfigurationError;
       const isFinalAttempt =
-        isUnrecoverableLlmError || job.attemptsMade + 1 >= maxAttempts;
+        isUnrecoverableLlmError ||
+        isUnrecoverableVideoProviderError ||
+        job.attemptsMade + 1 >= maxAttempts;
 
       if (isFinalAttempt) {
         await this.handleError(sessionId, error as Error, job.data);
@@ -210,7 +223,7 @@ class GenerationWorker {
         );
       }
 
-      if (isUnrecoverableLlmError) {
+      if (isUnrecoverableLlmError || isUnrecoverableVideoProviderError) {
         throw new UnrecoverableError(error.message);
       }
 
@@ -418,7 +431,7 @@ Rules:
         throw new Error("Empty script content for video generation");
       }
 
-      // Split the requested duration into Hailuo's native 6s clip length —
+      // Split the requested duration into MiniMax H3's 6s clip length —
       // a Standard-tier 90s purchase becomes fifteen 6s clips, each
       // generated from a scene-specific prompt rather than one giant
       // narration, since Hailuo (like every current video model) doesn't
@@ -476,6 +489,9 @@ Rules:
       return await stitchClips(clipUrls, sessionId);
     } catch (error) {
       console.error("Error generating video:", error);
+      if (error instanceof VideoProviderConfigurationError) {
+        throw error;
+      }
       throw new Error(`Video generation failed: ${(error as Error).message}`);
     }
   }
@@ -484,7 +500,7 @@ Rules:
     sessionId: string,
     script: any,
     quiz: any,
-    videoUrl: string,
+    videoUrl?: string,
   ): Promise<void> {
     try {
       await db
@@ -492,7 +508,7 @@ Rules:
         .set({
           script,
           quiz,
-          videoUrl,
+          ...(videoUrl ? { videoUrl } : {}),
           updatedAt: new Date(),
         })
         .where(eq(generations.sessionId, sessionId));

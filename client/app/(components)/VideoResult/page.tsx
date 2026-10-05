@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Play, CheckCircle, XCircle } from "lucide-react";
 import Navbar from "../Navbar/page";
 import { apiUrl } from "@/lib/api";
+import { formatDuration } from "@/lib/plans";
 
 type QuizQuestion = {
   question: string;
@@ -35,6 +36,7 @@ type GenerationData = {
   quiz?: { questions?: QuizQuestion[] } | null;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
+  routedModel?: string | null;
 };
 
 function VideoResultContent() {
@@ -99,6 +101,7 @@ function VideoResultContent() {
     const url = data?.videoUrl || "";
     return url.startsWith("https://cdn.local/");
   }, [data?.videoUrl]);
+  const isContentOnly = data?.routedModel === "gemini-script-quiz";
 
   const handleSelect = (idx: number, opt: number) => {
     setAnswers((prev) => ({ ...prev, [idx]: opt }));
@@ -141,7 +144,7 @@ function VideoResultContent() {
               {data.status === "COMPLETED" ? "Completed" : "Processing"}
             </span>
             <span className="text-xs text-gray-400">
-              {data.duration ?? 0} min · {data.language ?? "en"}
+              {formatDuration(data.duration ?? 0)} · {data.language ?? "en"}
             </span>
           </div>
         </div>
@@ -157,15 +160,16 @@ function VideoResultContent() {
                     <Play className="w-6 h-6 text-white/70" />
                   </div>
                   <p className="mt-4 text-sm">
-                    Video preview only (demo URL). Connect real video hosting to
-                    enable playback.
+                    {isContentOnly
+                      ? "Your personalized script and quiz are ready below."
+                      : "Video preview only (demo URL). Connect real video hosting to enable playback."}
                   </p>
                 </div>
               </div>
             )}
-            {isDemoVideo && (
+            {(isDemoVideo || isContentOnly) && (
               <div className="absolute top-3 right-3 text-xs px-3 py-1 rounded-full bg-violet-500/20 text-violet-200 border border-violet-500/30">
-                Script Ready · Video Coming Soon
+                {isContentOnly ? "Script + Quiz Ready" : "Script Ready · Video Coming Soon"}
               </div>
             )}
           </div>

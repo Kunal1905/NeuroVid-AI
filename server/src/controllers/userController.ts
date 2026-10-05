@@ -6,6 +6,7 @@ import { db } from '../services/db';
 import { clerkClient } from "@clerk/clerk-sdk-node"
 import { z } from 'zod';
 import { hashFingerprint, hasUsedFreeTrial } from '../services/wallet.service';
+import { hailuoService } from '../services/hailuo.service';
 
 // Get current user stats
 export const getUserStats = async (req: Request, res: Response) => {
@@ -19,7 +20,7 @@ export const getUserStats = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Only completed generations count toward delivered learning activity.
+    // Only completed sessions that delivered a video count toward video stats.
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
     const freeTrialFingerprint = hashFingerprint("", ip);
     const [generationStats, userResult, trialUsedForDevice] = await Promise.all([
@@ -31,6 +32,7 @@ export const getUserStats = async (req: Request, res: Response) => {
         .where(and(
           eq(generations.userId, authUser),
           eq(generations.status, 'COMPLETED'),
+          sql`${generations.routedModel} is distinct from 'gemini-script-quiz'`,
         )),
       db.select().from(users).where(eq(users.clerkUserId, authUser)),
       hasUsedFreeTrial(freeTrialFingerprint),
@@ -60,6 +62,7 @@ export const getUserStats = async (req: Request, res: Response) => {
       remainingCredits: user?.remainingCredits ?? 0,
       plan: user?.plan ?? 'free',
       freeTrialUsed: Boolean(user?.freeTrialUsed) || trialUsedForDevice,
+      videoGenerationEnabled: hailuoService.isConfigured(),
     });
 
   } catch (error) {

@@ -1,12 +1,12 @@
 # NeuroVid AI - AI Learning Video Generator
 
-NeuroVid AI is a full-stack application that turns learning prompts into structured lessons, short quizzes, and generated video output. It demonstrates an end-to-end AI product workflow: authenticated users submit a topic, the system queues background jobs, generates content with Gemini, and delivers a finished result with status tracking.
+NeuroVid AI is a full-stack application that turns learning prompts into structured lessons, short quizzes, and optional generated video output. It demonstrates an end-to-end AI product workflow: authenticated users submit a topic, the system queues background jobs, generates content with Gemini, and delivers a finished result with status tracking.
 
 **Highlights**
-- End-to-end AI pipeline (prompt -> script -> quiz -> Hailuo video)
+- End-to-end AI pipeline (prompt -> script -> quiz -> optional Hailuo video)
 - Queue-based processing with BullMQ + Redis for scalability and tier priority
 - Clerk authentication, credit-based usage limits, and Razorpay payments
-- Real MiniMax Hailuo clip generation with ffmpeg stitching
+- Script-and-quiz mode works without a paid video provider
 - Clean, modern Next.js UI with real-time progress updates
 
 ## Why I Built This
@@ -20,7 +20,7 @@ I built NeuroVid AI to tackle a real learning pain point: turning dense topics i
 
 ## Key Features
 - **AI script and quiz generation** using Google Gemini.
-- **Video generation pipeline** using MiniMax Hailuo 2.3 Fast clips stitched into a final MP4.
+- **Optional video generation pipeline** using MiniMax H3 clips stitched into a final MP4.
 - **Asynchronous jobs** via BullMQ workers with retries and progress.
 - **Brain-dominance personalization** from a short user survey.
 - **Secure authentication** and user gating with Clerk.
@@ -44,13 +44,13 @@ Postgres + Redis
 BullMQ Worker
    |
    v
-Gemini (script/quiz) + MiniMax Hailuo + ffmpeg stitching
+Gemini (script/quiz) + optional MiniMax H3 + ffmpeg stitching
 ```
 
 ## Tech Stack
 - **Frontend:** Next.js 16, React 19, Tailwind CSS, Radix UI, Framer Motion
 - **Backend:** Node.js, Express, BullMQ, Drizzle ORM
-- **AI:** Google Gemini (LLM), MiniMax Hailuo 2.3 Fast (video)
+- **AI:** Google Gemini (LLM), MiniMax H3 (video)
 - **Infra:** Postgres, Redis
 - **Auth and Payments:** Clerk, Razorpay
 
@@ -105,6 +105,7 @@ LLM_FALLBACK_MODEL=gemini-3.1-flash-lite
 # Keep this false to prevent any automatic Groq usage or charges.
 ALLOW_GROQ_FALLBACK=false
 
+# Optional. Omit this to run in free script-and-quiz-only mode.
 MINIMAX_API_KEY=your_minimax_api_key
 MINIMAX_GROUP_ID=your_minimax_group_id_optional
 
@@ -159,12 +160,12 @@ The app will be available at `http://localhost:3000` and the API at `http://loca
 1. Sign up or log in.
 2. Complete the brain-dominance survey for personalization.
 3. Enter a topic and submit a generation request.
-4. The backend checks free-trial eligibility or reserves credits.
-5. The worker generates script, quiz, Hailuo clips, stitches them, and stores the final video URL.
-6. Track progress and view the final video output.
+4. If video generation is enabled, the backend checks free-trial eligibility or reserves credits. Otherwise the lesson is free content-only mode.
+5. The worker generates a script and quiz. With `MINIMAX_API_KEY` configured, it also generates MiniMax H3 clips, stitches them, and stores the final video URL.
+6. Track progress and view the resulting lesson or final video.
 
 ## Notes on Video Generation
-Video generation now uses MiniMax Hailuo 2.3 Fast through `server/src/services/hailuo.service.ts`.
+Video generation uses MiniMax H3 through `server/src/services/hailuo.service.ts` when `MINIMAX_API_KEY` is configured. Without it, the app intentionally completes script-and-quiz sessions without calling a video API or consuming video credits.
 Each model call creates a short clip, and longer videos are split by `chainPlan()` in `server/src/config/VideoTiers.ts`.
 The worker stitches clip URLs with ffmpeg through `server/src/services/Videostitch.service.ts`.
 
@@ -179,7 +180,7 @@ The object-storage upload in the stitcher still needs to be wired to your S3/R2 
 - Paid generations reserve credits before queuing.
 - If a paid generation fails on the final BullMQ retry, the worker refunds the reserved credits.
 - Queue priority is tier-aware: higher paid tiers are processed before lower tiers and free jobs.
-- The dashboard's "Minutes generated" statistic sums the duration of `COMPLETED` generations only, so failed or unfinished requests are not counted as delivered video.
+- The dashboard's "Minutes generated" statistic sums completed sessions that delivered a video, so content-only sessions are not counted as video output.
 
 ## Roadmap
 - Multi-language video support
