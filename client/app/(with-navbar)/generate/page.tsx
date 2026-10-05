@@ -59,6 +59,7 @@ export default function Generate() {
   const [plans, setPlans] = useState<VideoTier[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("free");
   const [remainingCredits, setRemainingCredits] = useState(0);
+  const [freeTrialUsed, setFreeTrialUsed] = useState<boolean | null>(null);
 
   // Video generation flow (only added what's needed)
   const [showModal, setShowModal] = useState(false);
@@ -81,7 +82,9 @@ export default function Generate() {
   const selectedTier = plans.find((plan) => plan.planId === selectedPlanId);
   const availableSeconds = selectedTier
     ? selectedTier.isFreeTrial
-      ? selectedTier.totalSeconds
+      ? freeTrialUsed
+        ? 0
+        : selectedTier.totalSeconds
       : Math.min(selectedTier.totalSeconds, remainingCredits)
     : 0;
   const maxDuration = selectedTier
@@ -92,7 +95,12 @@ export default function Generate() {
     : 1;
   const canUseSelectedTier = Boolean(
     selectedTier &&
-      (selectedTier.isFreeTrial || remainingCredits >= duration[0]),
+      (selectedTier.isFreeTrial
+        ? !freeTrialUsed
+        : remainingCredits >= duration[0]),
+  );
+  const needsCredits = Boolean(
+    freeTrialUsed && remainingCredits === 0,
   );
 
   useEffect(() => {
@@ -170,6 +178,7 @@ export default function Generate() {
         const accountPlan = isPlanId(data.plan) ? data.plan : "free";
         setSelectedPlanId(accountPlan);
         setRemainingCredits(Math.max(0, Number(data.remainingCredits) || 0));
+        setFreeTrialUsed(Boolean(data.freeTrialUsed));
       } catch (error) {
         console.error("Error fetching wallet:", error);
       }
@@ -225,6 +234,12 @@ export default function Generate() {
       if (res.status === 402 || res.status === 429) {
         const err = await res.json();
         console.log("[generate] submit limit response", err);
+        if (String(err?.error || "").toLowerCase().includes("free trial")) {
+          setFreeTrialUsed(true);
+        }
+        setShowModal(false);
+        setStatus("idle");
+        setProgress(0);
         setShowPlanLimit(true);
         setIsGenerating(false);
         return;
@@ -298,6 +313,11 @@ export default function Generate() {
 
     if (surveyStatus === "error") {
       setSurveyCheckVersion((version) => version + 1);
+      return;
+    }
+
+    if (needsCredits) {
+      router.push("/subscription");
       return;
     }
 
@@ -416,16 +436,20 @@ export default function Generate() {
             Create AI-powered educational videos tailored to your learning style
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300">
-            {selectedTier?.isFreeTrial ? "One-time free trial:" : "Credit balance:"}
+            {selectedTier?.isFreeTrial && !freeTrialUsed
+              ? "One-time free trial:"
+              : "Credit balance:"}
             <span className={`flex items-center gap-1 font-semibold ${
-              !selectedTier?.isFreeTrial && remainingCredits === 0
+              needsCredits ||
+              (!selectedTier?.isFreeTrial && remainingCredits === 0)
                 ? "text-red-400"
                 : "text-violet-300"
             }`}>
-              {selectedTier?.isFreeTrial
+              {selectedTier?.isFreeTrial && !freeTrialUsed
                 ? formatDuration(selectedTier.totalSeconds)
                 : formatDuration(remainingCredits)}
-              {!selectedTier?.isFreeTrial && remainingCredits === 0 && (
+              {(needsCredits ||
+                (!selectedTier?.isFreeTrial && remainingCredits === 0)) && (
                 <AlertTriangle className="w-4 h-4 text-red-400" />
               )}
             </span>
@@ -459,22 +483,27 @@ export default function Generate() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Active pack</span>
                   <span className="font-medium text-white">
-                    {selectedTier?.label ?? "Loading..."}
+                    {selectedTier?.isFreeTrial && freeTrialUsed
+                      ? "Trial used"
+                      : selectedTier?.label ?? "Loading..."}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Cost</span>
                   <span className="font-medium text-white">
-                    {selectedTier?.isFreeTrial
+                    {selectedTier?.isFreeTrial && !freeTrialUsed
                       ? "Free trial"
-                      : `${duration[0]} credits`}
+                      : needsCredits
+                        ? "Buy credits"
+                        : `${duration[0]} credits`}
                   </span>
                 </div>
 
                 <div className="border-t border-gray-800 pt-4 text-xs leading-5 text-gray-400">
-                  One credit generates one second of video. A single generation
-                  can use up to {formatDuration(maxDuration)} from this pack.
+                  {needsCredits
+                    ? "Your one-time free trial has been used. Buy credits to generate another video."
+                    : `One credit generates one second of video. A single generation can use up to ${formatDuration(maxDuration)} from this pack.`}
                 </div>
               </div>
 
@@ -516,6 +545,35 @@ export default function Generate() {
             animate={{ opacity: 1, y: 0 }}
             className="lg:col-span-3"
           >
+            {needsCredits && surveyStatus === "complete" && (
+              <div
+                role="alert"
+                className="mb-6 flex flex-col gap-4 border-l-4 border-amber-400 bg-amber-500/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-200">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-white">
+                      Your free trial has been used
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">
+                      Purchase a video credit pack to continue generating. One
+                      credit gives you one second of video.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push("/subscription")}
+                  className="shrink-0 bg-violet-600 text-white hover:bg-violet-500"
+                >
+                  View credit packs
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
             {surveyStatus === "required" && (
               <div
                 role="alert"
@@ -841,6 +899,7 @@ export default function Generate() {
                   isGenerating ||
                   surveyStatus === "checking" ||
                   (surveyStatus === "complete" &&
+                    !needsCredits &&
                     (!topic.trim() || !canUseSelectedTier))
                 }
                 className="
@@ -872,6 +931,11 @@ export default function Generate() {
                   <>
                     <Brain className="w-5 h-5 mr-2" />
                     Complete Survey to Generate
+                  </>
+                ) : needsCredits ? (
+                  <>
+                    <ArrowRight className="w-5 h-5 mr-2" />
+                    View Credit Packs
                   </>
                 ) : surveyStatus === "error" ? (
                   <>

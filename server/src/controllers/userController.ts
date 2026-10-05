@@ -5,6 +5,7 @@ import { generations } from '../models/generate';
 import { db } from '../services/db';
 import { clerkClient } from "@clerk/clerk-sdk-node"
 import { z } from 'zod';
+import { hashFingerprint, hasUsedFreeTrial } from '../services/wallet.service';
 
 // Get current user stats
 export const getUserStats = async (req: Request, res: Response) => {
@@ -19,7 +20,9 @@ export const getUserStats = async (req: Request, res: Response) => {
     }
 
     // Only completed generations count toward delivered learning activity.
-    const [generationStats, userResult] = await Promise.all([
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+    const freeTrialFingerprint = hashFingerprint("", ip);
+    const [generationStats, userResult, trialUsedForDevice] = await Promise.all([
       db.select({
         count: sql<number>`count(*)`,
         totalSeconds: sql<number>`coalesce(sum(${generations.duration}), 0)`,
@@ -29,7 +32,8 @@ export const getUserStats = async (req: Request, res: Response) => {
           eq(generations.userId, authUser),
           eq(generations.status, 'COMPLETED'),
         )),
-      db.select().from(users).where(eq(users.clerkUserId, authUser))
+      db.select().from(users).where(eq(users.clerkUserId, authUser)),
+      hasUsedFreeTrial(freeTrialFingerprint),
     ]);
 
     const completedVideoCount = Number(generationStats[0]?.count || 0);
@@ -54,7 +58,8 @@ export const getUserStats = async (req: Request, res: Response) => {
       quizzes,
       avgScore: `${avgScore}%`,
       remainingCredits: user?.remainingCredits ?? 0,
-      plan: user?.plan ?? 'free'
+      plan: user?.plan ?? 'free',
+      freeTrialUsed: Boolean(user?.freeTrialUsed) || trialUsedForDevice,
     });
 
   } catch (error) {
