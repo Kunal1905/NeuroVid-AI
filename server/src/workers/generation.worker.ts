@@ -45,6 +45,34 @@ interface GenerationRecord {
   updatedAt: Date;
 }
 
+const learningStyleGuidance: Record<string, string> = {
+  left: `
+Learning profile: analytical and structured.
+Use this exact teaching arc, in order: definition -> components or rules -> causal mechanism -> worked example -> concise recap.
+Make the learner reason from evidence: define terms before using them, state assumptions, use a numbered process when there is a process, and include one concrete example with realistic values when appropriate.
+Prioritize precision, comparisons, cause-and-effect, and verifiable claims. Avoid opening with a story, metaphor, or motivational hook.
+The five bullets must begin with these labels: "Definition:", "How it works:", "Worked example:", "Common mistake:", and "Recap:".
+`,
+  right: `
+Learning profile: creative and intuitive.
+Use this exact teaching arc, in order: vivid hook -> familiar scenario or metaphor -> visual journey through the idea -> surprising connection -> memorable takeaway.
+Make the learner build intuition first: begin with a concrete scene, use one sustained accurate metaphor or analogy, describe what the learner would picture, and connect the concept to a real-world experience.
+Prioritize imagery, pattern recognition, contrast, and curiosity while remaining factually correct. Do not lead with formal definitions, lists of prerequisites, or a technical breakdown.
+The five bullets must begin with these labels: "Imagine:", "Connection:", "Picture it:", "What changes:", and "Takeaway:".
+`,
+  balanced: `
+Learning profile: balanced.
+Use this teaching arc, in order: relatable hook -> definition -> mechanism -> concrete example -> recap.
+Blend one clear visual analogy with direct, step-by-step reasoning. The five bullets must begin with: "Hook:", "Core idea:", "How it works:", "Example:", and "Recap:".
+`,
+};
+
+const quizStyleGuidance: Record<string, string> = {
+  left: "Use analytical questions that require cause-and-effect reasoning, identifying assumptions, or applying a rule to a small concrete case. Distractors should reflect plausible logical mistakes.",
+  right: "Use scenario-based questions that ask the learner to recognize the concept in a familiar situation, image, or analogy. Distractors should reflect intuitive but incorrect interpretations.",
+  balanced: "Mix direct concept checks with one short real-world scenario and one cause-and-effect question.",
+};
+
 class GenerationWorker {
   public worker: Worker;
 
@@ -278,12 +306,6 @@ class GenerationWorker {
   }
 
   private async generateScript(generation: GenerationRecord): Promise<any> {
-    const aiStyleMap: Record<string, string> = {
-      left: "structured, logical, step-by-step explanation",
-      right: "story-driven, visual, emotional narration",
-      balanced: "mixed logical and visual explanation",
-    };
-
     function safeParseJson(text: string) {
       try {
         return JSON.parse(text);
@@ -298,19 +320,21 @@ class GenerationWorker {
     }
 
     const aiStyle =
-      aiStyleMap[generation.style] ?? "clear, beginner-friendly explanation";
+      learningStyleGuidance[generation.style] ?? learningStyleGuidance.balanced;
 
     const prompt = `
-Create an educational script as concise bullet points.
+Create an educational lesson script as five concise bullet points.
 
 Return STRICT JSON in this format:
 
 {
   "title": "",
   "bullets": [
-    "Step 1: ...",
-    "Step 2: ...",
-    "Step 3: ..."
+    "First required style label: ...",
+    "Second required style label: ...",
+    "Third required style label: ...",
+    "Fourth required style label: ...",
+    "Fifth required style label: ..."
   ]
 }
 
@@ -318,12 +342,14 @@ Topic: ${generation.topic}
 Details: ${generation.details}
 Duration: ${generation.duration} seconds
 Language: ${generation.language}
-Teaching Style: ${aiStyle}
+Teaching blueprint:
+${aiStyle}
 
 Rules:
-- Use bullet points that explain each step clearly
-- Keep each bullet short (1–2 sentences)
-- Use simple language
+- Return exactly five bullets in the required label order for the selected learning profile.
+- Keep each bullet to one or two sentences and make it useful independently.
+- The left and right profiles must produce a genuinely different explanation order and learning activity, not the same text with different adjectives.
+- Use simple language unless the topic requires technical vocabulary, then define it in context.
 - Do not return anything except JSON
 `;
 
@@ -358,6 +384,8 @@ Rules:
     generation: GenerationRecord,
     script: any,
   ): Promise<any> {
+    const quizStyle =
+      quizStyleGuidance[generation.style] ?? quizStyleGuidance.balanced;
     const quizPrompt = `
 Based on this educational video script, create a quiz to test understanding:
 
@@ -381,6 +409,8 @@ Rules:
 - Questions should test key concepts from the script
 - Include explanations for each answer
 - Make questions appropriate for the topic difficulty
+- Teaching-profile quiz design: ${quizStyle}
+- Do not reuse the same question framing across different learning profiles.
 - Do not return anything except JSON
 `;
 

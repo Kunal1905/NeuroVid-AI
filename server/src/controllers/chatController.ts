@@ -5,9 +5,9 @@ import { brainDominanceSurveys } from "../models/survey";
 import llmService from "../services/llm.service";
 
 const styleMap: Record<string, string> = {
-  left: "Use structured, logical, step-by-step explanations with bullet points and definitions.",
-  right: "Use intuitive, story-driven explanations with metaphors and real-world examples.",
-  balanced: "Blend structure with examples; keep a warm, supportive tone.",
+  left: "Start with a direct definition, then explain the mechanism as a numbered sequence. Use precise terminology, cause-and-effect reasoning, and one compact worked example. Do not lead with a story or metaphor.",
+  right: "Start with a concrete scenario or vivid metaphor, then use it to build intuition before naming the formal concept. Emphasize patterns, contrast, and a memorable takeaway. Do not lead with a definition or numbered procedure.",
+  balanced: "Start with a relatable hook, then give a direct definition, a short explanation of the mechanism, and one concrete example.",
   none: "Use a clear, balanced style with short paragraphs.",
 };
 
@@ -44,6 +44,7 @@ Always:
 - Explain clearly and concisely.
 - Ask one quick follow-up question.
 - Use Markdown when helpful.
+- Follow the style guidance as a different response structure, not as cosmetic word changes.
 `.trim();
 
     const chatHistory = messages
